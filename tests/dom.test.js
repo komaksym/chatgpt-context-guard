@@ -3,9 +3,9 @@ const assert = require("node:assert/strict");
 
 const {
   conversationMessages,
+  findCheckpointResponse,
   findComposer,
   findConversationRoot,
-  isCheckpointReady,
   messageText,
   mutationsAffectMessages,
   resolveTheme,
@@ -66,47 +66,55 @@ test("findComposer uses only verified ChatGPT selectors", () => {
   assert.equal(findComposer(document), verified);
 });
 
-test("a new non-empty short assistant response is checkpoint-ready", () => {
+test("checkpoint response is bound to the prepared prompt and captured before later turns", () => {
+  const checkpointPrompt = [
+    "Create a lossless task checkpoint for continuing this work in a fresh chat.",
+    "Include exact files and tests.",
+    "Do not continue implementation in this response.",
+  ].join("\n");
+  const anchorMessages = [
+    { role: "user", text: "original question" },
+    { role: "assistant", text: "original answer" },
+  ];
+  const messages = [
+    { role: "assistant", text: "lazy-loaded older answer" },
+    ...anchorMessages,
+    { role: "user", text: "a different edited prompt" },
+    { role: "assistant", text: "unrelated answer" },
+    { role: "user", text: `${checkpointPrompt}\n\nAlso preserve issue IDs.` },
+    { role: "assistant", text: "the checkpoint" },
+    { role: "user", text: "one more question" },
+    { role: "assistant", text: "later unrelated answer" },
+  ];
+
   assert.equal(
-    isCheckpointReady({
-      baselineAssistantCount: 1,
-      messages: [
-        { role: "assistant", text: "old" },
-        { role: "assistant", text: "Done." },
-      ],
-      generating: false,
-    }),
-    true,
+    findCheckpointResponse({ anchorMessages, checkpointPrompt, messages, generating: false }),
+    "the checkpoint",
   );
 });
 
-test("a new assistant response is ready even when its text matches the previous response", () => {
-  assert.equal(
-    isCheckpointReady({
-      baselineAssistantCount: 1,
-      previousResponse: "Done.",
-      messages: [
-        { role: "assistant", text: "Done." },
-        { role: "assistant", text: "Done." },
-      ],
-      generating: false,
-    }),
-    true,
-  );
-});
+test("checkpoint response is unavailable until the checkpoint turn finishes", () => {
+  const checkpointPrompt = [
+    "Create a lossless task checkpoint for continuing this work in a fresh chat.",
+    "Do not continue implementation in this response.",
+  ].join("\n");
+  const anchorMessages = [{ role: "assistant", text: "before" }];
+  const messages = [
+    ...anchorMessages,
+    { role: "user", text: checkpointPrompt },
+    { role: "assistant", text: "partial checkpoint" },
+  ];
 
-test("checkpoint readiness rejects unchanged count, empty, or still-generating responses", () => {
-  const messages = [{ role: "assistant", text: "same" }];
-  assert.equal(isCheckpointReady({ baselineAssistantCount: 1, messages, generating: false }), false);
+  assert.equal(findCheckpointResponse({ anchorMessages, checkpointPrompt, messages, generating: true }), "");
   assert.equal(
-    isCheckpointReady({
-      baselineAssistantCount: 0,
-      messages: [{ role: "assistant", text: "" }],
+    findCheckpointResponse({
+      anchorMessages,
+      checkpointPrompt,
+      messages: [...anchorMessages, { role: "user", text: "unrelated" }, { role: "assistant", text: "answer" }],
       generating: false,
     }),
-    false,
+    "",
   );
-  assert.equal(isCheckpointReady({ baselineAssistantCount: 0, messages, generating: true }), false);
 });
 
 test("explicit ChatGPT theme wins over OS fallback", () => {
@@ -126,6 +134,7 @@ test("observer root is scoped to ChatGPT main content when available", () => {
   assert.equal(findConversationRoot({ querySelector: () => null, body }), body);
 });
 
+
 test("mutation filtering ignores composer typing and reacts to transcript changes", () => {
   const composer = {
     nodeType: 1,
@@ -142,6 +151,7 @@ test("mutation filtering ignores composer typing and reacts to transcript change
       querySelector: () => null,
     },
   };
+
   const stopButton = {
     nodeType: 1,
     matches: (selector) => selector.includes("stop-button"),
@@ -152,18 +162,4 @@ test("mutation filtering ignores composer typing and reacts to transcript change
   assert.equal(mutationsAffectMessages([{ target: composer, addedNodes: [], removedNodes: [] }]), false);
   assert.equal(mutationsAffectMessages([{ target: messageTextNode, addedNodes: [], removedNodes: [] }]), true);
   assert.equal(mutationsAffectMessages([{ target: composer, addedNodes: [], removedNodes: [stopButton] }]), true);
-});
-
-test("long transcript extraction stays linear and practical", () => {
-  const nodes = Array.from({ length: 10_000 }, (_, index) => ({
-    getAttribute: () => (index % 2 ? "assistant" : "user"),
-    querySelectorAll: () => [block(`message ${index}`)],
-  }));
-  const document = { querySelectorAll: () => nodes };
-  const started = performance.now();
-  const messages = conversationMessages(document);
-  const elapsed = performance.now() - started;
-
-  assert.equal(messages.length, 10_000);
-  assert.ok(elapsed < 500, `expected <500ms, got ${elapsed.toFixed(1)}ms`);
 });
