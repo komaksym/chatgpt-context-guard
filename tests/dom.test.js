@@ -7,6 +7,7 @@ const {
   findConversationRoot,
   isCheckpointReady,
   messageText,
+  mutationsAffectMessages,
   resolveTheme,
 } = require("../src/dom.js");
 
@@ -69,7 +70,6 @@ test("a new non-empty short assistant response is checkpoint-ready", () => {
   assert.equal(
     isCheckpointReady({
       baselineAssistantCount: 1,
-      previousResponse: "old",
       messages: [
         { role: "assistant", text: "old" },
         { role: "assistant", text: "Done." },
@@ -80,11 +80,33 @@ test("a new non-empty short assistant response is checkpoint-ready", () => {
   );
 });
 
-test("checkpoint readiness rejects unchanged, empty, or still-generating responses", () => {
+test("a new assistant response is ready even when its text matches the previous response", () => {
+  assert.equal(
+    isCheckpointReady({
+      baselineAssistantCount: 1,
+      previousResponse: "Done.",
+      messages: [
+        { role: "assistant", text: "Done." },
+        { role: "assistant", text: "Done." },
+      ],
+      generating: false,
+    }),
+    true,
+  );
+});
+
+test("checkpoint readiness rejects unchanged count, empty, or still-generating responses", () => {
   const messages = [{ role: "assistant", text: "same" }];
-  assert.equal(isCheckpointReady({ baselineAssistantCount: 0, previousResponse: "same", messages, generating: false }), false);
-  assert.equal(isCheckpointReady({ baselineAssistantCount: 0, previousResponse: "", messages: [{ role: "assistant", text: "" }], generating: false }), false);
-  assert.equal(isCheckpointReady({ baselineAssistantCount: 0, previousResponse: "", messages, generating: true }), false);
+  assert.equal(isCheckpointReady({ baselineAssistantCount: 1, messages, generating: false }), false);
+  assert.equal(
+    isCheckpointReady({
+      baselineAssistantCount: 0,
+      messages: [{ role: "assistant", text: "" }],
+      generating: false,
+    }),
+    false,
+  );
+  assert.equal(isCheckpointReady({ baselineAssistantCount: 0, messages, generating: true }), false);
 });
 
 test("explicit ChatGPT theme wins over OS fallback", () => {
@@ -102,6 +124,34 @@ test("observer root is scoped to ChatGPT main content when available", () => {
   const body = {};
   assert.equal(findConversationRoot({ querySelector: () => main, body }), main);
   assert.equal(findConversationRoot({ querySelector: () => null, body }), body);
+});
+
+test("mutation filtering ignores composer typing and reacts to transcript changes", () => {
+  const composer = {
+    nodeType: 1,
+    matches: () => false,
+    closest: () => null,
+    querySelector: () => null,
+  };
+  const message = {};
+  const messageTextNode = {
+    nodeType: 3,
+    parentElement: {
+      matches: () => false,
+      closest: () => message,
+      querySelector: () => null,
+    },
+  };
+  const stopButton = {
+    nodeType: 1,
+    matches: (selector) => selector.includes("stop-button"),
+    closest: () => null,
+    querySelector: () => null,
+  };
+
+  assert.equal(mutationsAffectMessages([{ target: composer, addedNodes: [], removedNodes: [] }]), false);
+  assert.equal(mutationsAffectMessages([{ target: messageTextNode, addedNodes: [], removedNodes: [] }]), true);
+  assert.equal(mutationsAffectMessages([{ target: composer, addedNodes: [], removedNodes: [stopButton] }]), true);
 });
 
 test("long transcript extraction stays linear and practical", () => {
