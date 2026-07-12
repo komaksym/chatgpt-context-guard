@@ -2,7 +2,7 @@
 
 ## Objective
 
-Finish and release ChatGPT Context Guard: a local-only Manifest V3 Chrome extension that estimates visible ChatGPT transcript tokens, warns at configurable thresholds, prepares a lossless checkpoint prompt without submitting it, and carries the latest checkpoint response into a fresh chat.
+Finish and release ChatGPT Context Guard: a local-only Manifest V3 Chrome extension that estimates visible ChatGPT transcript tokens, warns at configurable thresholds, prepares a lossless checkpoint prompt without submitting it, and captures the response to the prepared checkpoint turn and carries that exact response into a fresh chat.
 
 ## Repository state
 
@@ -23,7 +23,7 @@ Finish and release ChatGPT Context Guard: a local-only Manifest V3 Chrome extens
 - Dismissible threshold warning toast.
 - Light/dark styling, focus states, reduced-motion support, collapse control, and SVG icons.
 - Checkpoint prompt insertion without automatic submission.
-- Latest assistant-response carryover into a new chat through extension-local storage.
+- Checkpoint-turn-bound response capture and carryover into a new chat through extension-local storage.
 - Extension icon set, README, MIT license, build script, lint script, tests, and GitHub Actions CI.
 
 ## Review repairs completed locally
@@ -34,18 +34,18 @@ Finish and release ChatGPT Context Guard: a local-only Manifest V3 Chrome extens
 4. The widget disclaimer now names hidden system, tool, and reasoning context, server limits, and compaction.
 5. Removed `textarea[placeholder]`; only `#prompt-textarea` and `textarea[data-id="root"]` are accepted.
 6. Mutation observation is scoped to ChatGPT's main conversation root, ignores composer typing, and still reacts to transcript changes and generation completion. A 10,000-message performance regression test was added.
-7. Removed the 80-character and text-difference checkpoint gates; any newly added non-empty assistant response can become ready, even if it repeats the previous text.
+7. Replaced assistant-count readiness with checkpoint-turn tracking: the prepared prompt is located after a stable transcript anchor, its response is captured once, and later turns cannot replace it.
 
 ## Verification evidence
 
 - RED: `node --test tests/dom.test.js` failed because `src/dom.js` did not exist.
-- GREEN: 10/10 DOM adapter regression tests passed.
-- Full `npm test`: 21/21 tests passed.
+- RED: the new turn-binding regression failed because `findCheckpointResponse` did not exist, and the browser carryover regression stored a later unrelated answer.
+- GREEN: checkpoint-turn binding, extra-turn stability, fresh-chat prefilling/storage removal, and real-DOM performance regressions passed.
+- Full `npm test`: 19/19 tests passed.
 - `npm run lint`: 9 JavaScript files and manifest permissions passed.
 - `npm run build`: unpacked extension built successfully in `dist/`.
-- `npm run test:browser`: Playwright fixture passed multi-block extraction, prompt insertion, short-response readiness, and explicit dark-theme detection.
-- 10,000-message extraction completed in roughly 22-25 ms in the local verification environment.
-- GitHub Actions passed `npm ci`, all tests, lint, build, and the Playwright browser fixture on PR #1.
+- `npm run test:browser`: 3/3 Playwright tests passed, covering extraction/theme, the complete carry/consume flow with an extra later turn, and a 10,000-message real-DOM plus MutationObserver regression.
+- The 10,000-message browser test asserts adapter extraction under 1.5 seconds and observer-driven full renders under 3 seconds.
 - `npm install`: zero reported vulnerabilities.
 - The local Chromium image blocks all URL navigation with `ERR_BLOCKED_BY_ADMINISTRATOR`, including localhost. Therefore the committed browser test uses an in-memory fixture and injects the actual content scripts; the previous live headed ChatGPT smoke test remains the latest real-site evidence.
 
