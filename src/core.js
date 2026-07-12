@@ -1,0 +1,94 @@
+(function initContextGuardCore(root, factory) {
+  const api = factory();
+  if (typeof module === "object" && module.exports) module.exports = api;
+  root.ContextGuardCore = api;
+})(typeof globalThis === "object" ? globalThis : this, function createCore() {
+  "use strict";
+
+  const DEFAULT_THRESHOLDS = Object.freeze({
+    long: 250_000,
+    warning: 400_000,
+    critical: 600_000,
+  });
+
+  function estimateTextTokens(text) {
+    if (!text) return 0;
+    const value = String(text);
+    const cjk = value.match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/gu) || [];
+    const remaining = value.replace(
+      /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/gu,
+      "",
+    );
+    return cjk.length + Math.ceil(remaining.length / 4);
+  }
+
+  function estimateTranscriptTokens(messages) {
+    return messages.reduce((total, message) => {
+      if (message.role !== "user" && message.role !== "assistant") return total;
+      return total + estimateTextTokens(message.text);
+    }, 0);
+  }
+
+  function normalizeThresholds(value = DEFAULT_THRESHOLDS) {
+    const thresholds = {
+      long: Number(value.long),
+      warning: Number(value.warning),
+      critical: Number(value.critical),
+    };
+    if (!Object.values(thresholds).every(Number.isSafeInteger) || Object.values(thresholds).some((n) => n <= 0)) {
+      throw new TypeError("Thresholds must be positive integers.");
+    }
+    if (!(thresholds.long < thresholds.warning && thresholds.warning < thresholds.critical)) {
+      throw new RangeError("Thresholds must strictly increase.");
+    }
+    return thresholds;
+  }
+
+  function classifyUsage(tokens, value = DEFAULT_THRESHOLDS) {
+    const thresholds = normalizeThresholds(value);
+    if (tokens >= thresholds.critical) {
+      return { level: "critical", label: "Start a fresh chat", limit: thresholds.critical };
+    }
+    if (tokens >= thresholds.warning) {
+      return { level: "warning", label: "Checkpoint recommended", limit: thresholds.warning };
+    }
+    if (tokens >= thresholds.long) {
+      return { level: "long", label: "Long conversation", limit: thresholds.long };
+    }
+    return { level: "normal", label: "Context looks healthy", limit: thresholds.long };
+  }
+
+  function formatTokenCount(tokens) {
+    if (tokens < 1_000) return String(tokens);
+    if (tokens < 1_000_000) {
+      const value = tokens / 1_000;
+      return `${Number(value.toFixed(value < 10 ? 1 : 0))}K`;
+    }
+    return `${Number((tokens / 1_000_000).toFixed(2))}M`;
+  }
+
+  function createCheckpointPrompt() {
+    return [
+      "Create a lossless task checkpoint for continuing this work in a fresh chat.",
+      "Include:",
+      "- objective and all active constraints",
+      "- decisions made and rejected approaches with reasons",
+      "- exact files changed and current repository state",
+      "- commands and tests run, including exact results",
+      "- unresolved failures, risks, and blockers",
+      "- the next concrete action",
+      "Preserve exact names, paths, commands, identifiers, and numerical values.",
+      "Do not continue implementation in this response.",
+    ].join("\n");
+  }
+
+  return Object.freeze({
+    DEFAULT_THRESHOLDS,
+    classifyUsage,
+    createCheckpointPrompt,
+    estimateTextTokens,
+    estimateTranscriptTokens,
+    formatTokenCount,
+    normalizeThresholds,
+  });
+});
