@@ -2,7 +2,8 @@
   "use strict";
 
   const core = globalThis.ContextGuardCore;
-  if (!core || document.getElementById("chatgpt-context-guard-host")) return;
+  const dom = globalThis.ContextGuardDom;
+  if (!core || !dom || document.getElementById("chatgpt-context-guard-host")) return;
 
   const host = document.createElement("div");
   host.id = "chatgpt-context-guard-host";
@@ -37,7 +38,7 @@
       <div class="rail" aria-hidden="true"><span></span></div>
       <div class="count"><span class="token-count">0</span> visible tokens</div>
       <div class="status" role="status"><span class="status-dot"></span><span class="status-text"></span></div>
-      <p class="disclaimer">Estimated from visible messages</p>
+      <p class="disclaimer">Visible-message estimate only. Hidden system, tool, and reasoning context, server limits, and compaction are unknown.</p>
       <button class="primary" type="button">Generate checkpoint</button>
       <form class="settings" hidden>
         <label>Long conversation <input name="long" type="number" min="1" step="1000"></label>
@@ -81,23 +82,22 @@
   let checkpointBaseline = null;
   let checkpointPreviousResponse = "";
   let checkpointReady = false;
+  let observedRoot = null;
+
+  const conversationObserver = new MutationObserver(scheduleRender);
+  const themeObserver = new MutationObserver(() => applyTheme());
+  const colorScheme = matchMedia("(prefers-color-scheme: dark)");
 
   function conversationMessages() {
-    return [...document.querySelectorAll('[data-message-author-role="user"], [data-message-author-role="assistant"]')]
-      .map((node) => {
-        const role = node.getAttribute("data-message-author-role");
-        const content = node.querySelector(".markdown, .whitespace-pre-wrap") || node;
-        return { role, text: content.innerText || content.textContent || "" };
-      })
-      .filter((message) => message.text.trim());
+    return dom.conversationMessages(document);
   }
 
   function latestAssistantText(messages = conversationMessages()) {
-    return [...messages].reverse().find((message) => message.role === "assistant")?.text.trim() || "";
+    return dom.latestAssistantText(messages);
   }
 
   function findComposer() {
-    return document.querySelector('#prompt-textarea, textarea[data-id="root"], textarea[placeholder]');
+    return dom.findComposer(document);
   }
 
   function setComposerText(text) {
@@ -126,19 +126,17 @@
   }
 
   function maybeMarkCheckpointReady(messages) {
-    if (checkpointBaseline === null || isGenerating()) return;
-    const assistantCount = messages.filter((message) => message.role === "assistant").length;
-    const latest = latestAssistantText(messages);
-    checkpointReady = assistantCount > checkpointBaseline && latest.length > 80 && latest !== checkpointPreviousResponse;
+    checkpointReady = dom.isCheckpointReady({
+      baselineAssistantCount: checkpointBaseline,
+      previousResponse: checkpointPreviousResponse,
+      messages,
+      generating: isGenerating(),
+    });
   }
 
   function warningContent(level) {
-    if (level === "critical") {
-      return ["Start a fresh chat", "Create a checkpoint now to reduce the risk of losing early constraints."];
-    }
-    if (level === "warning") {
-      return ["Checkpoint recommended", "This conversation is large enough that a continuation checkpoint is prudent."];
-    }
+    if (level === "critical") return ["Start a fresh chat", "Create a checkpoint now to reduce the risk of losing early constraints."];
+    if (level === "warning") return ["Checkpoint recommended", "This conversation is large enough that a continuation checkpoint is prudent."];
     return ["Long conversation", "Context is growing. Confirm that important decisions are written down."];
   }
 
@@ -152,7 +150,21 @@
     elements.warning.hidden = false;
   }
 
+  function applyTheme() {
+    host.dataset.theme = dom.resolveTheme(document, colorScheme.matches);
+  }
+
+  function refreshObservedRoot() {
+    const nextRoot = dom.findConversationRoot(document);
+    if (!nextRoot || nextRoot === observedRoot) return;
+    conversationObserver.disconnect();
+    conversationObserver.observe(nextRoot, { childList: true, subtree: true, characterData: true });
+    observedRoot = nextRoot;
+  }
+
   function render() {
+    refreshObservedRoot();
+    applyTheme();
     if (location.pathname !== lastPath) {
       lastPath = location.pathname;
       warned = new Set();
@@ -194,9 +206,7 @@
   }
 
   function renderSettings() {
-    for (const key of ["long", "warning", "critical"]) {
-      elements.settings.elements[key].value = thresholds[key];
-    }
+    for (const key of ["long", "warning", "critical"]) elements.settings.elements[key].value = thresholds[key];
     elements.settingsError.textContent = "";
   }
 
@@ -269,7 +279,14 @@
     elements.warning.hidden = true;
   });
 
-  new MutationObserver(scheduleRender).observe(document.body, { childList: true, subtree: true, characterData: true });
+  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "data-theme"] });
+  colorScheme.addEventListener?.("change", applyTheme);
+  setInterval(() => {
+    if (location.pathname !== lastPath || dom.findConversationRoot(document) !== observedRoot) scheduleRender();
+  }, 1_000);
+
+  refreshObservedRoot();
+  applyTheme();
   loadThresholds();
   consumePendingCheckpoint();
 })();

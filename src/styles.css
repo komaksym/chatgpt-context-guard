@@ -206,15 +206,28 @@ input:focus-visible {
   outline-offset: 2px;
 }
 
+:host([data-theme="dark"]) {
+  --guard-bg: #242424;
+  --guard-text: #f3f3f3;
+  --guard-muted: #b4b4b4;
+  --guard-border: #444444;
+  --guard-track: #3b3b3b;
+}
+:host([data-theme="dark"]) .panel,
+:host([data-theme="dark"]) .warning-toast,
+:host([data-theme="dark"]) .collapsed { box-shadow: 0 10px 32px rgb(0 0 0 / 34%); }
+
 @media (prefers-color-scheme: dark) {
-  :host {
+  :host(:not([data-theme="light"])) {
     --guard-bg: #242424;
     --guard-text: #f3f3f3;
     --guard-muted: #b4b4b4;
     --guard-border: #444444;
     --guard-track: #3b3b3b;
   }
-  .panel, .warning-toast, .collapsed { box-shadow: 0 10px 32px rgb(0 0 0 / 34%); }
+  :host(:not([data-theme="light"])) .panel,
+  :host(:not([data-theme="light"])) .warning-toast,
+  :host(:not([data-theme="light"])) .collapsed { box-shadow: 0 10px 32px rgb(0 0 0 / 34%); }
 }
 
 @media (max-width: 600px) {

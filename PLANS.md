@@ -4,7 +4,7 @@
 
 Build and verify a dependency-free Chrome extension that estimates visible ChatGPT transcript size, warns at configurable thresholds, and prepares checkpoint handoffs without automatic submission.
 
-Current continuation state and unresolved review findings are recorded in `CHECKPOINT.md`.
+Current continuation state and unresolved release work are recorded in `CHECKPOINT.md`.
 
 ## Milestone 1: Pure context logic
 
@@ -18,9 +18,13 @@ Current continuation state and unresolved review findings are recorded in `CHECK
 - [x] Implement the MV3 manifest, Shadow DOM meter, settings, warnings, composer insertion, and checkpoint carryover.
 - [x] Run unit and browser-backed interaction checks.
 
-## Milestone 3: Browser and live verification
+## Milestone 3: Review repairs and release verification
 
-- [x] Load the unpacked extension in an isolated headless Chromium profile.
-- [x] Verify normal, warning, critical, settings, carryover, light, and dark states.
-- [x] Smoke-test content-script injection on the live ChatGPT DOM without sending messages.
-- [ ] Run final tests, static validation, and review feedback repairs.
+- [x] Add a deterministic browser fixture and repository-owned Playwright automation.
+- [x] Aggregate multi-block message content without nested double-counting.
+- [x] Follow ChatGPT's explicit document theme with OS fallback.
+- [x] Expand the visible-context limitation disclaimer.
+- [x] Restrict composer lookup to verified selectors.
+- [x] Scope mutation observation to the conversation root and add a 10,000-message performance test.
+- [x] Accept valid short checkpoint responses.
+- [ ] Confirm GitHub Actions, repeat the live ChatGPT smoke test, perform visual comparison, and run a final independent review.

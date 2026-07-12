@@ -7,10 +7,10 @@ Finish and release ChatGPT Context Guard: a local-only Manifest V3 Chrome extens
 ## Repository state
 
 - GitHub: `git@github.com:komaksym/chatgpt-context-guard.git`
-- Branch: `codex/context-guard`
+- Base branch: `codex/context-guard`
 - Design: `docs/superpowers/specs/2026-07-11-chatgpt-context-guard-design.md`
 - Plan: `PLANS.md`
-- No production dependencies.
+- No production dependencies; Playwright is a pinned development dependency for browser verification.
 
 ## Implemented
 
@@ -24,37 +24,28 @@ Finish and release ChatGPT Context Guard: a local-only Manifest V3 Chrome extens
 - Latest assistant-response carryover into a new chat through extension-local storage.
 - Extension icon set, README, MIT license, build script, lint script, tests, and GitHub Actions CI.
 
-## Verified evidence
+## Review repairs completed locally
 
-- `npm test`: 10/10 tests passed.
-- `npm run lint`: JavaScript syntax and manifest permission checks passed.
+1. Added `tests/fixture.html` and repository-owned Playwright automation in `tests/browser.test.js`.
+2. Extracted `src/dom.js`; multi-block assistant content is aggregated while nested matching blocks are not counted twice.
+3. The widget follows ChatGPT's explicit `data-theme`/document class and falls back to the OS preference.
+4. The widget disclaimer now names hidden system, tool, and reasoning context, server limits, and compaction.
+5. Removed `textarea[placeholder]`; only `#prompt-textarea` and `textarea[data-id="root"]` are accepted.
+6. Mutation observation is scoped to ChatGPT's main conversation root, with route/root replacement detection. A 10,000-message performance regression test was added.
+7. Removed the 80-character checkpoint gate; any new non-empty assistant response can become ready.
+
+## Verification evidence
+
+- RED: `node --test tests/dom.test.js` failed because `src/dom.js` did not exist.
+- GREEN: 8/8 DOM adapter regression tests passed.
+- Full `npm test`: 19/19 tests passed.
+- `npm run lint`: 9 JavaScript files and manifest permissions passed.
 - `npm run build`: unpacked extension built successfully in `dist/`.
-- `git diff --check`: passed.
-- `npm install --package-lock-only --ignore-scripts`: zero vulnerabilities.
-- Live headed Chrome smoke test proved injection on the real ChatGPT DOM without sending a message.
-- Isolated headless Chromium synthetic-DOM checks proved:
-  - critical warning state;
-  - checkpoint prompt insertion;
-  - action transition to `Carry latest to new chat`;
-  - checkpoint carryover after fresh-chat navigation;
-  - dark mode and collapsed state.
-- Final headless carryover result: `{ "promptPrepared": true, "carried": true }`.
-- Headless ChatGPT itself returned anti-bot HTTP 403; browser behavior was tested against a synthetic ChatGPT-compatible DOM inside that page.
-
-## Independent review findings to address
-
-The release review verdict was **not ready to merge**. Fix these before release:
-
-1. Add reproducible browser automation to the repository. Current browser checks were executed externally through Playwright CLI; `tests/extension.test.js` mostly verifies static contracts. The design mentions `tests/fixture.html`, which is not present.
-2. `src/content.js` currently reads only the first `.markdown` or `.whitespace-pre-wrap` descendant of a message. Multi-block assistant responses may be undercounted and checkpoint carryover may be truncated. Aggregate all content blocks without double-counting nested nodes.
-3. Dark mode follows OS `prefers-color-scheme`, not ChatGPT's explicitly selected theme. Support ChatGPT's document theme while retaining OS fallback.
-4. Expand the in-widget disclaimer to state that hidden system/tool/reasoning context and server-side compaction are unknown.
-5. Remove the overly broad `textarea[placeholder]` composer fallback. Use only verified ChatGPT composer selectors.
-6. Scope or optimize the whole-body `MutationObserver` plus full transcript `innerText` scan. Add a long-transcript performance test.
-7. Remove the arbitrary `latest.length > 80` checkpoint-readiness gate so valid short checkpoint responses can be carried.
+- `npm run test:browser`: Playwright fixture passed multi-block extraction, prompt insertion, short-response readiness, and explicit dark-theme detection.
+- 10,000-message extraction completed in roughly 22-25 ms in the local verification environment.
+- `npm install`: zero reported vulnerabilities.
+- The local Chromium image blocks all URL navigation with `ERR_BLOCKED_BY_ADMINISTRATOR`, including localhost. Therefore the committed browser test uses an in-memory fixture and injects the actual content scripts; the previous live headed ChatGPT smoke test remains the latest real-site evidence.
 
 ## Next concrete action
 
-Start with failing tests for findings 2, 5, 6, and 7. Extract DOM collection/composer selection into testable functions or add a deterministic browser fixture. Verify RED, implement the smallest fixes, run unit/static/browser checks, then repeat the independent review.
-
-Do not claim release readiness until all review findings are fixed and the final tests, lint, build, browser flow, and visual comparison pass again.
+Push the review-repair commit to a non-main branch, confirm GitHub Actions, repeat the live ChatGPT smoke test and visual comparison in a normal browser environment, then run a final independent review. Do not claim release readiness until those checks pass.
