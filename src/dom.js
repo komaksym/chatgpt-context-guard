@@ -35,19 +35,54 @@
       .filter((message) => message.text);
   }
 
-  function latestAssistantText(messages) {
-    return [...messages].reverse().find((message) => message.role === "assistant")?.text.trim() || "";
+  function normalizedText(text) {
+    return String(text || "").replace(/\r\n/g, "\n").trim();
+  }
+
+  function messagesMatch(left, right) {
+    return left?.role === right?.role && normalizedText(left?.text) === normalizedText(right?.text);
+  }
+
+  function findAnchorEnd(messages, anchorMessages) {
+    if (!anchorMessages.length) return 0;
+    for (let start = messages.length - anchorMessages.length; start >= 0; start -= 1) {
+      if (anchorMessages.every((anchor, offset) => messagesMatch(messages[start + offset], anchor))) {
+        return start + anchorMessages.length;
+      }
+    }
+    return -1;
+  }
+
+  function checkpointPromptMatches(candidate, checkpointPrompt) {
+    const candidateText = normalizedText(candidate);
+    const promptLines = normalizedText(checkpointPrompt)
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (!candidateText || promptLines.length === 0) return false;
+    return candidateText.includes(promptLines[0]) && candidateText.includes(promptLines[promptLines.length - 1]);
+  }
+
+  function findCheckpointResponse({ anchorMessages = [], checkpointPrompt, messages, generating }) {
+    if (!checkpointPrompt || generating) return "";
+    const searchStart = findAnchorEnd(messages, anchorMessages);
+    if (searchStart < 0) return "";
+
+    for (let index = searchStart; index < messages.length; index += 1) {
+      const message = messages[index];
+      if (message.role !== "user" || !checkpointPromptMatches(message.text, checkpointPrompt)) continue;
+      for (let responseIndex = index + 1; responseIndex < messages.length; responseIndex += 1) {
+        const response = messages[responseIndex];
+        if (response.role === "user") break;
+        if (response.role === "assistant" && normalizedText(response.text)) return normalizedText(response.text);
+      }
+      return "";
+    }
+    return "";
   }
 
   function findComposer(documentObject) {
     return documentObject.querySelector(COMPOSER_SELECTOR);
-  }
-
-  function isCheckpointReady({ baselineAssistantCount, messages, generating }) {
-    if (baselineAssistantCount === null || generating) return false;
-    const assistantCount = messages.filter((message) => message.role === "assistant").length;
-    const latest = latestAssistantText(messages);
-    return assistantCount > baselineAssistantCount && Boolean(latest);
   }
 
   function nodeTouchesMessage(node) {
@@ -87,10 +122,9 @@
     GENERATION_SELECTOR,
     MESSAGE_SELECTOR,
     conversationMessages,
+    findCheckpointResponse,
     findComposer,
     findConversationRoot,
-    isCheckpointReady,
-    latestAssistantText,
     messageText,
     mutationsAffectMessages,
     resolveTheme,
