@@ -3,6 +3,7 @@
 
   const core = globalThis.ContextGuardCore;
   const dom = globalThis.ContextGuardDom;
+  const environment = globalThis.ContextGuardEnvironment || {};
   if (!core || !dom || document.getElementById("chatgpt-context-guard-host")) return;
 
   const host = document.createElement("div");
@@ -77,10 +78,11 @@
 
   let thresholds = core.DEFAULT_THRESHOLDS;
   let warned = new Set();
-  let lastPath = location.pathname;
+  let lastPath = currentPathname();
   let updateTimer = 0;
-  let checkpointBaseline = null;
-  let checkpointReady = false;
+  let checkpointAnchor = [];
+  let checkpointPrompt = "";
+  let checkpointResponse = "";
   let observedRoot = null;
 
   const conversationObserver = new MutationObserver((mutations) => {
@@ -93,8 +95,13 @@
     return dom.conversationMessages(document);
   }
 
-  function latestAssistantText(messages = conversationMessages()) {
-    return dom.latestAssistantText(messages);
+  function currentPathname() {
+    return environment.pathname?.() || location.pathname;
+  }
+
+  function navigate(url) {
+    if (environment.navigate) environment.navigate(url);
+    else location.assign(url);
   }
 
   function findComposer() {
@@ -126,9 +133,11 @@
     return Boolean(document.querySelector('[data-testid="stop-button"], button[aria-label*="Stop"]'));
   }
 
-  function maybeMarkCheckpointReady(messages) {
-    checkpointReady = dom.isCheckpointReady({
-      baselineAssistantCount: checkpointBaseline,
+  function maybeCaptureCheckpoint(messages) {
+    if (checkpointResponse || !checkpointPrompt) return;
+    checkpointResponse = dom.findCheckpointResponse({
+      anchorMessages: checkpointAnchor,
+      checkpointPrompt,
       messages,
       generating: isGenerating(),
     });
@@ -165,25 +174,26 @@
   function render() {
     refreshObservedRoot();
     applyTheme();
-    if (location.pathname !== lastPath) {
-      lastPath = location.pathname;
+    if (currentPathname() !== lastPath) {
+      lastPath = currentPathname();
       warned = new Set();
-      checkpointBaseline = null;
-      checkpointReady = false;
+      checkpointAnchor = [];
+      checkpointPrompt = "";
+      checkpointResponse = "";
       elements.warning.hidden = true;
       consumePendingCheckpoint();
     }
     const messages = conversationMessages();
     const tokens = core.estimateTranscriptTokens(messages);
     const usage = core.classifyUsage(tokens, thresholds);
-    maybeMarkCheckpointReady(messages);
+    maybeCaptureCheckpoint(messages);
 
     shell.dataset.level = usage.level;
     elements.count.textContent = core.formatTokenCount(tokens);
     elements.collapsedCount.textContent = core.formatTokenCount(tokens);
     elements.status.textContent = usage.label;
     elements.rail.style.width = `${Math.min(100, (tokens / thresholds.critical) * 100)}%`;
-    elements.primary.textContent = checkpointReady ? "Carry latest to new chat" : "Generate checkpoint";
+    elements.primary.textContent = checkpointResponse ? "Carry latest to new chat" : "Generate checkpoint";
     showWarning(usage.level);
   }
 
@@ -212,9 +222,10 @@
 
   async function generateCheckpoint() {
     const messages = conversationMessages();
-    checkpointBaseline = messages.filter((message) => message.role === "assistant").length;
-    checkpointReady = false;
-    if (!setComposerText(core.createCheckpointPrompt())) {
+    checkpointAnchor = messages.slice(-4);
+    checkpointPrompt = core.createCheckpointPrompt();
+    checkpointResponse = "";
+    if (!setComposerText(checkpointPrompt)) {
       elements.status.textContent = "Could not find the ChatGPT composer";
       return;
     }
@@ -222,14 +233,13 @@
   }
 
   async function carryLatestToNewChat() {
-    const checkpoint = latestAssistantText();
-    if (!checkpoint) return;
-    await chrome.storage.local.set({ pendingCheckpoint: checkpoint });
-    location.assign(`${location.origin}/`);
+    if (!checkpointResponse) return;
+    await chrome.storage.local.set({ pendingCheckpoint: checkpointResponse });
+    navigate("/");
   }
 
   async function consumePendingCheckpoint() {
-    if (location.pathname !== "/") return;
+    if (currentPathname() !== "/") return;
     const { pendingCheckpoint } = await chrome.storage.local.get("pendingCheckpoint");
     if (!pendingCheckpoint) return;
     let attempts = 0;
@@ -271,7 +281,7 @@
     }
   });
   elements.primary.addEventListener("click", () => {
-    if (checkpointReady) carryLatestToNewChat();
+    if (checkpointResponse) carryLatestToNewChat();
     else generateCheckpoint();
   });
   shell.querySelector(".warning-dismiss").addEventListener("click", () => {
@@ -281,7 +291,7 @@
   themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "data-theme"] });
   colorScheme.addEventListener?.("change", applyTheme);
   setInterval(() => {
-    if (location.pathname !== lastPath || dom.findConversationRoot(document) !== observedRoot) scheduleRender();
+    if (currentPathname() !== lastPath || dom.findConversationRoot(document) !== observedRoot) scheduleRender();
   }, 1_000);
 
   refreshObservedRoot();
