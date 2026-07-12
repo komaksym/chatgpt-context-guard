@@ -26,6 +26,7 @@ Current continuation state and unresolved release work are recorded in `CHECKPOI
 - [x] Expand the visible-context limitation disclaimer.
 - [x] Restrict composer lookup to verified selectors.
 - [x] Scope mutation observation to the conversation root, ignore composer typing, preserve generation-complete updates, and add a 10,000-message performance test.
-- [x] Accept valid short checkpoint responses, including repeated text.
-- [x] Confirm GitHub Actions.
+- [x] Bind readiness to the prepared checkpoint turn, capture its response once, and keep it stable across later turns.
+- [x] Add end-to-end browser coverage for carry, fresh-chat prefilling, storage cleanup, and a real 10,000-message DOM/observer regression.
+- [ ] Confirm GitHub Actions for the review-fix head.
 - [ ] Repeat the live ChatGPT smoke test, perform visual comparison, and run a final independent review.
