@@ -26,8 +26,8 @@ All thresholds are configurable from the meter.
 
 1. Click **Generate checkpoint**.
 2. Review the prompt inserted into ChatGPT and send it yourself.
-3. After ChatGPT finishes the checkpoint response, click **Carry latest to new chat**.
-4. The extension opens a fresh chat and prefills its composer with the checkpoint. It never sends a message automatically.
+3. After ChatGPT finishes the checkpoint response, click **Carry latest to new chat**. The extension captures that checkpoint response, so later turns cannot replace it.
+4. The extension opens a fresh chat and prefills its composer with the captured checkpoint. It never sends a message automatically.
 
 ## Privacy
 
