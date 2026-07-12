@@ -80,11 +80,12 @@
   let lastPath = location.pathname;
   let updateTimer = 0;
   let checkpointBaseline = null;
-  let checkpointPreviousResponse = "";
   let checkpointReady = false;
   let observedRoot = null;
 
-  const conversationObserver = new MutationObserver(scheduleRender);
+  const conversationObserver = new MutationObserver((mutations) => {
+    if (dom.mutationsAffectMessages(mutations)) scheduleRender();
+  });
   const themeObserver = new MutationObserver(() => applyTheme());
   const colorScheme = matchMedia("(prefers-color-scheme: dark)");
 
@@ -128,7 +129,6 @@
   function maybeMarkCheckpointReady(messages) {
     checkpointReady = dom.isCheckpointReady({
       baselineAssistantCount: checkpointBaseline,
-      previousResponse: checkpointPreviousResponse,
       messages,
       generating: isGenerating(),
     });
@@ -213,7 +213,6 @@
   async function generateCheckpoint() {
     const messages = conversationMessages();
     checkpointBaseline = messages.filter((message) => message.role === "assistant").length;
-    checkpointPreviousResponse = latestAssistantText(messages);
     checkpointReady = false;
     if (!setComposerText(core.createCheckpointPrompt())) {
       elements.status.textContent = "Could not find the ChatGPT composer";
