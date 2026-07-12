@@ -8,6 +8,7 @@
   const MESSAGE_SELECTOR = '[data-message-author-role="user"], [data-message-author-role="assistant"]';
   const CONTENT_SELECTOR = ".markdown, .whitespace-pre-wrap";
   const COMPOSER_SELECTOR = '#prompt-textarea, textarea[data-id="root"]';
+  const GENERATION_SELECTOR = '[data-testid="stop-button"], button[aria-label*="Stop"]';
 
   function nodeText(node) {
     return node?.innerText || node?.textContent || "";
@@ -42,16 +43,29 @@
     return documentObject.querySelector(COMPOSER_SELECTOR);
   }
 
-  function isCheckpointReady({
-    baselineAssistantCount,
-    previousResponse,
-    messages,
-    generating,
-  }) {
+  function isCheckpointReady({ baselineAssistantCount, messages, generating }) {
     if (baselineAssistantCount === null || generating) return false;
     const assistantCount = messages.filter((message) => message.role === "assistant").length;
     const latest = latestAssistantText(messages);
-    return assistantCount > baselineAssistantCount && Boolean(latest) && latest !== previousResponse;
+    return assistantCount > baselineAssistantCount && Boolean(latest);
+  }
+
+  function nodeTouchesMessage(node) {
+    const element = node?.nodeType === 1 ? node : node?.parentElement;
+    if (!element) return false;
+    return [MESSAGE_SELECTOR, GENERATION_SELECTOR].some(
+      (selector) =>
+        element.matches?.(selector) ||
+        element.closest?.(selector) ||
+        element.querySelector?.(selector),
+    );
+  }
+
+  function mutationsAffectMessages(mutations) {
+    return mutations.some((mutation) => {
+      if (nodeTouchesMessage(mutation.target)) return true;
+      return [...(mutation.addedNodes || []), ...(mutation.removedNodes || [])].some(nodeTouchesMessage);
+    });
   }
 
   function resolveTheme(documentObject, prefersDark) {
@@ -70,6 +84,7 @@
   return Object.freeze({
     COMPOSER_SELECTOR,
     CONTENT_SELECTOR,
+    GENERATION_SELECTOR,
     MESSAGE_SELECTOR,
     conversationMessages,
     findComposer,
@@ -77,6 +92,7 @@
     isCheckpointReady,
     latestAssistantText,
     messageText,
+    mutationsAffectMessages,
     resolveTheme,
   });
 });
