@@ -4,7 +4,7 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "test": "node --test tests/core.test.js tests/dom.test.js tests/extension.test.js",
+    "test": "node --test tests/core.test.js tests/dom.test.js tests/conversation.test.js tests/extension.test.js",
     "test:browser": "node --test tests/browser.test.js",
     "lint": "node scripts/check.js",
     "build": "node scripts/build.js",
