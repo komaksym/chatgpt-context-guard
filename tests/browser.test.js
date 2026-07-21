@@ -37,11 +37,12 @@ async function injectContentScript(
     clearMessages = false,
     fullConversation = null,
     cachedLedger = null,
+    failAfterFirstFetch = false,
   } = {},
 ) {
   await page.setContent(fixture);
   await page.evaluate(
-    ({ pending, pathname, shouldClearMessages, conversationData, ledger }) => {
+    ({ pending, pathname, shouldClearMessages, conversationData, ledger, failAfterFirst }) => {
       if (shouldClearMessages) {
         document.querySelectorAll('[data-message-author-role="user"], [data-message-author-role="assistant"]').forEach((node) => node.remove());
       }
@@ -66,7 +67,9 @@ async function injectContentScript(
         },
         async fetchActiveConversation() {
           globalThis.__contextGuardFetchCount += 1;
-          if (!conversationData) throw new Error("fixture conversation API unavailable");
+          if (!conversationData || (failAfterFirst && globalThis.__contextGuardFetchCount > 1)) {
+            throw new Error("fixture conversation API unavailable");
+          }
           return structuredClone(conversationData);
         },
       };
@@ -91,6 +94,7 @@ async function injectContentScript(
       shouldClearMessages: clearMessages,
       conversationData: fullConversation,
       ledger: cachedLedger,
+      failAfterFirst: failAfterFirstFetch,
     },
   );
   await page.addScriptTag({ path: path.join(root, "src/core.js") });
@@ -139,6 +143,36 @@ test("browser fixture uses the complete active branch instead of the mounted DOM
   const cache = await page.evaluate(() => globalThis.__contextGuardStorage.local.conversationEstimateCache);
   assert.equal(cache.entries.fixture.totalTokens, 3_000);
   assert.doesNotMatch(JSON.stringify(cache), /xxxx|yyyy/);
+});
+
+test("a full snapshot becomes cached while generation changes the conversation", async (t) => {
+  const browser = await launchBrowser(t);
+  const page = await browser.newPage();
+  await injectContentScript(page, {
+    failAfterFirstFetch: true,
+    fullConversation: {
+      currentNode: "assistant-api",
+      messages: [{ id: "assistant-api", role: "assistant", text: "x".repeat(4_000) }],
+    },
+  });
+
+  await page.waitForFunction(
+    () => document.querySelector("#chatgpt-context-guard-host").shadowRoot.querySelector(".guard").dataset.estimateSource === "full",
+  );
+  await page.evaluate(() => {
+    const stop = document.createElement("button");
+    stop.dataset.testid = "stop-button";
+    document.querySelector("main").append(stop);
+  });
+  await page.waitForFunction(
+    () => document.querySelector("#chatgpt-context-guard-host").shadowRoot.querySelector(".guard").dataset.estimateSource === "cached",
+  );
+  await page.evaluate(() => document.querySelector('[data-testid="stop-button"]').remove());
+  await page.waitForFunction(() => globalThis.__contextGuardFetchCount > 1);
+
+  const host = page.locator("#chatgpt-context-guard-host");
+  assert.equal((await host.locator(".token-suffix").innerText()).trim(), "cached full-history tokens");
+  assert.equal(await host.locator(".source").innerText(), "Last complete snapshot; refresh unavailable");
 });
 
 test("browser fixture labels a cached full-history snapshot when refresh fails", async (t) => {
