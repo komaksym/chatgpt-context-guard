@@ -1,10 +1,20 @@
 # ChatGPT Context Guard
 
-ChatGPT Context Guard is a local-only Chrome extension that estimates the size of the messages visible in a ChatGPT conversation. It warns before a long thread becomes risky and prepares a structured checkpoint for continuing in a fresh chat.
+ChatGPT Context Guard is a local-only Chrome extension that estimates the size of the active ChatGPT conversation history. It warns before a long thread becomes risky and prepares a structured checkpoint for continuing in a fresh chat.
 
 ## What it can and cannot measure
 
-The meter estimates **visible transcript tokens**. It cannot see ChatGPT system instructions, hidden tool payloads, reasoning tokens, server-side context limits, or compaction. Treat the meter as an early-warning heuristic, not an exact context gauge.
+For saved conversation routes, the extension first tries to load ChatGPT's complete active conversation branch from ChatGPT's own same-origin conversation data. This avoids undercounting when the page virtualizes old messages and removes them from the DOM.
+
+The meter labels the source of every estimate:
+
+- **Full history** — a fresh complete active-branch snapshot.
+- **Cached full history** — the most recent complete snapshot when refreshing is unavailable.
+- **Partial loaded history** — only currently mounted page messages; the number includes a `+` suffix.
+
+Only token counts and message IDs are cached locally. Conversation text and access tokens are never persisted. The ChatGPT conversation endpoint is undocumented and may change, so the DOM fallback is intentional.
+
+The meter still cannot see hidden system instructions, tool payloads, reasoning tokens, the exact content ChatGPT sends to the model, server-side truncation, or compaction. Treat it as an early-warning estimate, not an exact context-window gauge.
 
 Default warning thresholds:
 
@@ -31,10 +41,10 @@ All thresholds are configurable from the meter.
 
 ## Privacy
 
-- No analytics or remote calls.
-- No cookies, API keys, or network interception.
-- Transcript text stays inside the ChatGPT page.
-- Settings and one pending checkpoint are stored through Chrome extension storage.
+- No analytics or third-party remote calls.
+- No cookies, API keys, bearer tokens, or conversation text are persisted.
+- Full-history requests stay on the current ChatGPT origin and use the existing signed-in browser session.
+- Settings, token-only conversation ledgers, and one pending checkpoint are stored through Chrome extension storage.
 
 ## Development
 
