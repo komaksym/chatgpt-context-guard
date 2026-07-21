@@ -9,7 +9,9 @@
     "48": "assets/icon-48.png",
     "128": "assets/icon-128.png"
   },
-  "permissions": ["storage"],
+  "permissions": [
+    "storage"
+  ],
   "host_permissions": [
     "https://chatgpt.com/*",
     "https://chat.openai.com/*"
@@ -20,13 +22,19 @@
         "https://chatgpt.com/*",
         "https://chat.openai.com/*"
       ],
-      "js": ["src/core.js", "src/content.js"],
+      "js": [
+        "src/core.js",
+        "src/dom.js",
+        "src/content.js"
+      ],
       "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["src/styles.css"],
+      "resources": [
+        "src/styles.css"
+      ],
       "matches": [
         "https://chatgpt.com/*",
         "https://chat.openai.com/*"

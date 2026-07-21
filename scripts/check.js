@@ -3,7 +3,17 @@ const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 
 const root = path.resolve(__dirname, "..");
-const files = ["src/core.js", "src/content.js", "tests/core.test.js", "tests/extension.test.js", "scripts/check.js", "scripts/build.js"];
+const files = [
+  "src/core.js",
+  "src/dom.js",
+  "src/content.js",
+  "tests/core.test.js",
+  "tests/dom.test.js",
+  "tests/extension.test.js",
+  "tests/browser.test.js",
+  "scripts/check.js",
+  "scripts/build.js",
+];
 
 for (const file of files) {
   if (!fs.existsSync(path.join(root, file))) throw new Error(`Missing required file: ${file}`);

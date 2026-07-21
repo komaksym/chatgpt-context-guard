@@ -16,7 +16,7 @@ All thresholds are configurable from the meter.
 
 ## Install from source
 
-1. Run `npm test && npm run lint && npm run build`.
+1. Run `npm ci && npm run verify`.
 2. Open `chrome://extensions`.
 3. Enable **Developer mode**.
 4. Click **Load unpacked** and select this repository's `dist` directory.
@@ -26,8 +26,8 @@ All thresholds are configurable from the meter.
 
 1. Click **Generate checkpoint**.
 2. Review the prompt inserted into ChatGPT and send it yourself.
-3. After ChatGPT finishes the checkpoint response, click **Carry latest to new chat**.
-4. The extension opens a fresh chat and prefills its composer with the checkpoint. It never sends a message automatically.
+3. After ChatGPT finishes the checkpoint response, click **Carry latest to new chat**. The extension captures that checkpoint response, so later turns cannot replace it.
+4. The extension opens a fresh chat and prefills its composer with the captured checkpoint. It never sends a message automatically.
 
 ## Privacy
 
@@ -39,7 +39,11 @@ All thresholds are configurable from the meter.
 ## Development
 
 ```bash
+npm ci
 npm test
 npm run lint
 npm run build
+npm run test:browser
 ```
+
+The browser test uses an installed Chrome or Chromium executable. Set `CHROMIUM_PATH` when it is not available at a common system path.

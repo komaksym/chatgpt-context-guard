@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8">
+    <title>Context Guard Fixture</title>
+    <style>
+      body { font-family: sans-serif; margin: 0; }
+      main { max-width: 760px; margin: 40px auto; }
+      [data-message-author-role] { padding: 12px; }
+      #prompt-textarea { min-height: 80px; border: 1px solid #aaa; }
+    </style>
+  </head>
+  <body>
+    <main role="main">
+      <article data-message-author-role="user">
+        <div class="whitespace-pre-wrap">question</div>
+      </article>
+      <article data-message-author-role="assistant">
+        <div class="markdown">first block</div>
+        <div class="markdown"><div class="markdown">nested duplicate</div>second block</div>
+      </article>
+      <div id="prompt-textarea" contenteditable="true" data-id="root"></div>
+    </main>
+  </body>
+</html>

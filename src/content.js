@@ -2,7 +2,9 @@
   "use strict";
 
   const core = globalThis.ContextGuardCore;
-  if (!core || document.getElementById("chatgpt-context-guard-host")) return;
+  const dom = globalThis.ContextGuardDom;
+  const environment = globalThis.ContextGuardEnvironment || {};
+  if (!core || !dom || document.getElementById("chatgpt-context-guard-host")) return;
 
   const host = document.createElement("div");
   host.id = "chatgpt-context-guard-host";
@@ -37,7 +39,7 @@
       <div class="rail" aria-hidden="true"><span></span></div>
       <div class="count"><span class="token-count">0</span> visible tokens</div>
       <div class="status" role="status"><span class="status-dot"></span><span class="status-text"></span></div>
-      <p class="disclaimer">Estimated from visible messages</p>
+      <p class="disclaimer">Visible-message estimate only. Hidden system, tool, and reasoning context, server limits, and compaction are unknown.</p>
       <button class="primary" type="button">Generate checkpoint</button>
       <form class="settings" hidden>
         <label>Long conversation <input name="long" type="number" min="1" step="1000"></label>
@@ -76,28 +78,34 @@
 
   let thresholds = core.DEFAULT_THRESHOLDS;
   let warned = new Set();
-  let lastPath = location.pathname;
+  let lastPath = currentPathname();
   let updateTimer = 0;
-  let checkpointBaseline = null;
-  let checkpointPreviousResponse = "";
-  let checkpointReady = false;
+  let checkpointAnchor = [];
+  let checkpointPrompt = "";
+  let checkpointResponse = "";
+  let observedRoot = null;
+
+  const conversationObserver = new MutationObserver((mutations) => {
+    if (dom.mutationsAffectMessages(mutations)) scheduleRender();
+  });
+  const themeObserver = new MutationObserver(() => applyTheme());
+  const colorScheme = matchMedia("(prefers-color-scheme: dark)");
 
   function conversationMessages() {
-    return [...document.querySelectorAll('[data-message-author-role="user"], [data-message-author-role="assistant"]')]
-      .map((node) => {
-        const role = node.getAttribute("data-message-author-role");
-        const content = node.querySelector(".markdown, .whitespace-pre-wrap") || node;
-        return { role, text: content.innerText || content.textContent || "" };
-      })
-      .filter((message) => message.text.trim());
+    return dom.conversationMessages(document);
   }
 
-  function latestAssistantText(messages = conversationMessages()) {
-    return [...messages].reverse().find((message) => message.role === "assistant")?.text.trim() || "";
+  function currentPathname() {
+    return environment.pathname?.() || location.pathname;
+  }
+
+  function navigate(url) {
+    if (environment.navigate) environment.navigate(url);
+    else location.assign(url);
   }
 
   function findComposer() {
-    return document.querySelector('#prompt-textarea, textarea[data-id="root"], textarea[placeholder]');
+    return dom.findComposer(document);
   }
 
   function setComposerText(text) {
@@ -125,20 +133,19 @@
     return Boolean(document.querySelector('[data-testid="stop-button"], button[aria-label*="Stop"]'));
   }
 
-  function maybeMarkCheckpointReady(messages) {
-    if (checkpointBaseline === null || isGenerating()) return;
-    const assistantCount = messages.filter((message) => message.role === "assistant").length;
-    const latest = latestAssistantText(messages);
-    checkpointReady = assistantCount > checkpointBaseline && latest.length > 80 && latest !== checkpointPreviousResponse;
+  function maybeCaptureCheckpoint(messages) {
+    if (checkpointResponse || !checkpointPrompt) return;
+    checkpointResponse = dom.findCheckpointResponse({
+      anchorMessages: checkpointAnchor,
+      checkpointPrompt,
+      messages,
+      generating: isGenerating(),
+    });
   }
 
   function warningContent(level) {
-    if (level === "critical") {
-      return ["Start a fresh chat", "Create a checkpoint now to reduce the risk of losing early constraints."];
-    }
-    if (level === "warning") {
-      return ["Checkpoint recommended", "This conversation is large enough that a continuation checkpoint is prudent."];
-    }
+    if (level === "critical") return ["Start a fresh chat", "Create a checkpoint now to reduce the risk of losing early constraints."];
+    if (level === "warning") return ["Checkpoint recommended", "This conversation is large enough that a continuation checkpoint is prudent."];
     return ["Long conversation", "Context is growing. Confirm that important decisions are written down."];
   }
 
@@ -152,26 +159,41 @@
     elements.warning.hidden = false;
   }
 
+  function applyTheme() {
+    host.dataset.theme = dom.resolveTheme(document, colorScheme.matches);
+  }
+
+  function refreshObservedRoot() {
+    const nextRoot = dom.findConversationRoot(document);
+    if (!nextRoot || nextRoot === observedRoot) return;
+    conversationObserver.disconnect();
+    conversationObserver.observe(nextRoot, { childList: true, subtree: true, characterData: true });
+    observedRoot = nextRoot;
+  }
+
   function render() {
-    if (location.pathname !== lastPath) {
-      lastPath = location.pathname;
+    refreshObservedRoot();
+    applyTheme();
+    if (currentPathname() !== lastPath) {
+      lastPath = currentPathname();
       warned = new Set();
-      checkpointBaseline = null;
-      checkpointReady = false;
+      checkpointAnchor = [];
+      checkpointPrompt = "";
+      checkpointResponse = "";
       elements.warning.hidden = true;
       consumePendingCheckpoint();
     }
     const messages = conversationMessages();
     const tokens = core.estimateTranscriptTokens(messages);
     const usage = core.classifyUsage(tokens, thresholds);
-    maybeMarkCheckpointReady(messages);
+    maybeCaptureCheckpoint(messages);
 
     shell.dataset.level = usage.level;
     elements.count.textContent = core.formatTokenCount(tokens);
     elements.collapsedCount.textContent = core.formatTokenCount(tokens);
     elements.status.textContent = usage.label;
     elements.rail.style.width = `${Math.min(100, (tokens / thresholds.critical) * 100)}%`;
-    elements.primary.textContent = checkpointReady ? "Carry latest to new chat" : "Generate checkpoint";
+    elements.primary.textContent = checkpointResponse ? "Carry latest to new chat" : "Generate checkpoint";
     showWarning(usage.level);
   }
 
@@ -194,18 +216,16 @@
   }
 
   function renderSettings() {
-    for (const key of ["long", "warning", "critical"]) {
-      elements.settings.elements[key].value = thresholds[key];
-    }
+    for (const key of ["long", "warning", "critical"]) elements.settings.elements[key].value = thresholds[key];
     elements.settingsError.textContent = "";
   }
 
   async function generateCheckpoint() {
     const messages = conversationMessages();
-    checkpointBaseline = messages.filter((message) => message.role === "assistant").length;
-    checkpointPreviousResponse = latestAssistantText(messages);
-    checkpointReady = false;
-    if (!setComposerText(core.createCheckpointPrompt())) {
+    checkpointAnchor = messages.slice(-4);
+    checkpointPrompt = core.createCheckpointPrompt();
+    checkpointResponse = "";
+    if (!setComposerText(checkpointPrompt)) {
       elements.status.textContent = "Could not find the ChatGPT composer";
       return;
     }
@@ -213,14 +233,13 @@
   }
 
   async function carryLatestToNewChat() {
-    const checkpoint = latestAssistantText();
-    if (!checkpoint) return;
-    await chrome.storage.local.set({ pendingCheckpoint: checkpoint });
-    location.assign(`${location.origin}/`);
+    if (!checkpointResponse) return;
+    await chrome.storage.local.set({ pendingCheckpoint: checkpointResponse });
+    navigate("/");
   }
 
   async function consumePendingCheckpoint() {
-    if (location.pathname !== "/") return;
+    if (currentPathname() !== "/") return;
     const { pendingCheckpoint } = await chrome.storage.local.get("pendingCheckpoint");
     if (!pendingCheckpoint) return;
     let attempts = 0;
@@ -262,14 +281,21 @@
     }
   });
   elements.primary.addEventListener("click", () => {
-    if (checkpointReady) carryLatestToNewChat();
+    if (checkpointResponse) carryLatestToNewChat();
     else generateCheckpoint();
   });
   shell.querySelector(".warning-dismiss").addEventListener("click", () => {
     elements.warning.hidden = true;
   });
 
-  new MutationObserver(scheduleRender).observe(document.body, { childList: true, subtree: true, characterData: true });
+  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "data-theme"] });
+  colorScheme.addEventListener?.("change", applyTheme);
+  setInterval(() => {
+    if (currentPathname() !== lastPath || dom.findConversationRoot(document) !== observedRoot) scheduleRender();
+  }, 1_000);
+
+  refreshObservedRoot();
+  applyTheme();
   loadThresholds();
   consumePendingCheckpoint();
 })();
