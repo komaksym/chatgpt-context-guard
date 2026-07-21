@@ -6,9 +6,11 @@ const root = path.resolve(__dirname, "..");
 const files = [
   "src/core.js",
   "src/dom.js",
+  "src/conversation.js",
   "src/content.js",
   "tests/core.test.js",
   "tests/dom.test.js",
+  "tests/conversation.test.js",
   "tests/extension.test.js",
   "tests/browser.test.js",
   "scripts/check.js",
