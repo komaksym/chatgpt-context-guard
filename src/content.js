@@ -276,7 +276,9 @@
         await storeLedger(ledger).catch(() => {});
       })
       .catch(() => {
-        if (activeConversationId === conversationId) nextRetryAt = Date.now() + RETRY_DELAY_MS;
+        if (activeConversationId !== conversationId) return;
+        nextRetryAt = Date.now() + RETRY_DELAY_MS;
+        if (estimateState.kind === "full") estimateState = { ...estimateState, kind: "cached" };
       })
       .finally(() => {
         if (estimateRequest?.promise === request) estimateRequest = null;
@@ -351,6 +353,7 @@
     const domMessages = conversationMessages();
     maybeCaptureCheckpoint(domMessages);
     const generating = isGenerating();
+    if (generating && estimateState.kind === "full") estimateState = { ...estimateState, kind: "cached" };
     if (wasGenerating && !generating) void refreshFullEstimate({ force: true });
     wasGenerating = generating;
 
