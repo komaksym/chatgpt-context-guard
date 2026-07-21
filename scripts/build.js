@@ -7,6 +7,7 @@ const files = [
   "manifest.json",
   "src/core.js",
   "src/dom.js",
+  "src/conversation.js",
   "src/content.js",
   "src/styles.css",
   "assets/icon.svg",
