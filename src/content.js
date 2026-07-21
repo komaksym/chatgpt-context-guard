@@ -3,8 +3,14 @@
 
   const core = globalThis.ContextGuardCore;
   const dom = globalThis.ContextGuardDom;
+  const conversation = globalThis.ContextGuardConversation;
   const environment = globalThis.ContextGuardEnvironment || {};
-  if (!core || !dom || document.getElementById("chatgpt-context-guard-host")) return;
+  if (!core || !dom || !conversation || document.getElementById("chatgpt-context-guard-host")) return;
+
+  const CACHE_KEY = "conversationEstimateCache";
+  const CACHE_LIMIT = 20;
+  const REFRESH_INTERVAL_MS = 60_000;
+  const RETRY_DELAY_MS = 30_000;
 
   const host = document.createElement("div");
   host.id = "chatgpt-context-guard-host";
@@ -22,7 +28,7 @@
   shell.setAttribute("aria-label", "ChatGPT context estimate");
   shell.innerHTML = `
     <button class="collapsed" type="button" aria-label="Expand context estimate" hidden>
-      <span class="collapsed-dot"></span><span class="collapsed-count">0</span>
+      <span class="collapsed-dot"></span><span class="collapsed-count">0+</span>
     </button>
     <div class="panel">
       <header>
@@ -37,9 +43,10 @@
         </div>
       </header>
       <div class="rail" aria-hidden="true"><span></span></div>
-      <div class="count"><span class="token-count">0</span> visible tokens</div>
+      <div class="count"><span class="token-count">0+</span><span class="token-suffix"> loaded tokens</span></div>
+      <div class="source" role="status">Partial — only currently loaded messages counted</div>
       <div class="status" role="status"><span class="status-dot"></span><span class="status-text"></span></div>
-      <p class="disclaimer">Visible-message estimate only. Hidden system, tool, and reasoning context, server limits, and compaction are unknown.</p>
+      <p class="disclaimer">Active user/assistant history estimate. Hidden system, tool, and reasoning context, server limits, truncation, and compaction are unknown.</p>
       <button class="primary" type="button">Generate checkpoint</button>
       <form class="settings" hidden>
         <label>Long conversation <input name="long" type="number" min="1" step="1000"></label>
@@ -66,6 +73,8 @@
     collapsed: shell.querySelector(".collapsed"),
     collapsedCount: shell.querySelector(".collapsed-count"),
     count: shell.querySelector(".token-count"),
+    tokenSuffix: shell.querySelector(".token-suffix"),
+    source: shell.querySelector(".source"),
     rail: shell.querySelector(".rail span"),
     status: shell.querySelector(".status-text"),
     primary: shell.querySelector(".primary"),
@@ -84,6 +93,12 @@
   let checkpointPrompt = "";
   let checkpointResponse = "";
   let observedRoot = null;
+  let activeConversationId = null;
+  let estimateState = { kind: "partial", tokens: 0, messageCount: 0 };
+  let estimateRequest = null;
+  let lastFullRefreshAt = 0;
+  let nextRetryAt = 0;
+  let wasGenerating = false;
 
   const conversationObserver = new MutationObserver((mutations) => {
     if (dom.mutationsAffectMessages(mutations)) scheduleRender();
@@ -97,6 +112,10 @@
 
   function currentPathname() {
     return environment.pathname?.() || location.pathname;
+  }
+
+  function currentOrigin() {
+    return environment.origin?.() || location.origin;
   }
 
   function navigate(url) {
@@ -171,9 +190,154 @@
     observedRoot = nextRoot;
   }
 
+  function validLedger(ledger, conversationId) {
+    return Boolean(
+      ledger &&
+      ledger.conversationId === conversationId &&
+      Number.isSafeInteger(ledger.totalTokens) &&
+      ledger.totalTokens >= 0 &&
+      Number.isSafeInteger(ledger.messageCount) &&
+      ledger.messageCount >= 0 &&
+      Number.isFinite(ledger.updatedAt),
+    );
+  }
+
+  async function readEstimateCache() {
+    const stored = await chrome.storage.local.get(CACHE_KEY);
+    const cache = stored[CACHE_KEY];
+    if (cache?.version !== 1 || !cache.entries || typeof cache.entries !== "object") {
+      return { version: 1, entries: {} };
+    }
+    return cache;
+  }
+
+  async function restoreCachedEstimate(conversationId) {
+    const cache = await readEstimateCache();
+    const ledger = cache.entries[conversationId];
+    if (activeConversationId !== conversationId || !validLedger(ledger, conversationId)) return;
+    estimateState = {
+      kind: "cached",
+      tokens: ledger.totalTokens,
+      messageCount: ledger.messageCount,
+      updatedAt: ledger.updatedAt,
+    };
+    scheduleRender();
+  }
+
+  async function storeLedger(ledger) {
+    const cache = await readEstimateCache();
+    cache.entries[ledger.conversationId] = ledger;
+    const entries = Object.fromEntries(
+      Object.entries(cache.entries)
+        .filter(([conversationId, value]) => validLedger(value, conversationId))
+        .sort((left, right) => right[1].updatedAt - left[1].updatedAt)
+        .slice(0, CACHE_LIMIT),
+    );
+    await chrome.storage.local.set({ [CACHE_KEY]: { version: 1, entries } });
+  }
+
+  function loadActiveConversation(options) {
+    if (environment.fetchActiveConversation) return environment.fetchActiveConversation(options);
+    return conversation.fetchActiveConversation(options);
+  }
+
+  async function refreshFullEstimate({ force = false } = {}) {
+    const conversationId = activeConversationId;
+    const now = Date.now();
+    if (!conversationId || isGenerating()) return;
+    if (estimateRequest?.conversationId === conversationId) return estimateRequest.promise;
+    if (!force && (now - lastFullRefreshAt < REFRESH_INTERVAL_MS || now < nextRetryAt)) return;
+
+    let request;
+    request = Promise.resolve()
+      .then(() =>
+        loadActiveConversation({
+          conversationId,
+          origin: currentOrigin(),
+          fetchImpl: globalThis.fetch?.bind(globalThis),
+        }),
+      )
+      .then(async ({ currentNode, messages }) => {
+        if (activeConversationId !== conversationId) return;
+        const ledger = conversation.createTokenLedger({
+          conversationId,
+          currentNode,
+          messages,
+          estimateTextTokens: core.estimateTextTokens,
+        });
+        estimateState = {
+          kind: "full",
+          tokens: ledger.totalTokens,
+          messageCount: ledger.messageCount,
+          updatedAt: ledger.updatedAt,
+        };
+        lastFullRefreshAt = ledger.updatedAt;
+        nextRetryAt = 0;
+        await storeLedger(ledger).catch(() => {});
+      })
+      .catch(() => {
+        if (activeConversationId === conversationId) nextRetryAt = Date.now() + RETRY_DELAY_MS;
+      })
+      .finally(() => {
+        if (estimateRequest?.promise === request) estimateRequest = null;
+        if (activeConversationId === conversationId) scheduleRender();
+      });
+    estimateRequest = { conversationId, promise: request };
+    return request;
+  }
+
+  async function initializeConversationEstimate(conversationId) {
+    if (!conversationId) return;
+    await restoreCachedEstimate(conversationId).catch(() => {});
+    if (activeConversationId === conversationId) await refreshFullEstimate({ force: true });
+  }
+
+  function syncConversationRoute() {
+    const nextConversationId = conversation.conversationIdFromPathname(currentPathname());
+    if (nextConversationId === activeConversationId) return;
+    activeConversationId = nextConversationId;
+    estimateState = { kind: "partial", tokens: 0, messageCount: 0 };
+    estimateRequest = null;
+    lastFullRefreshAt = 0;
+    nextRetryAt = 0;
+    if (nextConversationId) void initializeConversationEstimate(nextConversationId);
+  }
+
+  function selectedEstimate(domMessages) {
+    if (estimateState.kind === "full" || estimateState.kind === "cached") return estimateState;
+    return {
+      kind: "partial",
+      tokens: core.estimateTranscriptTokens(domMessages),
+      messageCount: domMessages.length,
+    };
+  }
+
+  function estimatePresentation(estimate) {
+    if (estimate.kind === "full") {
+      return {
+        count: core.formatTokenCount(estimate.tokens),
+        suffix: " full-history tokens",
+        source: "Complete active branch",
+      };
+    }
+    if (estimate.kind === "cached") {
+      return {
+        count: core.formatTokenCount(estimate.tokens),
+        suffix: " cached full-history tokens",
+        source: "Last complete snapshot; refresh unavailable",
+      };
+    }
+    return {
+      count: `${core.formatTokenCount(estimate.tokens)}+`,
+      suffix: " loaded tokens",
+      source: "Partial — only currently loaded messages counted",
+    };
+  }
+
   function render() {
     refreshObservedRoot();
     applyTheme();
+    syncConversationRoute();
     if (currentPathname() !== lastPath) {
       lastPath = currentPathname();
       warned = new Set();
@@ -183,16 +347,25 @@
       elements.warning.hidden = true;
       consumePendingCheckpoint();
     }
-    const messages = conversationMessages();
-    const tokens = core.estimateTranscriptTokens(messages);
-    const usage = core.classifyUsage(tokens, thresholds);
-    maybeCaptureCheckpoint(messages);
+
+    const domMessages = conversationMessages();
+    maybeCaptureCheckpoint(domMessages);
+    const generating = isGenerating();
+    if (wasGenerating && !generating) void refreshFullEstimate({ force: true });
+    wasGenerating = generating;
+
+    const estimate = selectedEstimate(domMessages);
+    const usage = core.classifyUsage(estimate.tokens, thresholds);
+    const presentation = estimatePresentation(estimate);
 
     shell.dataset.level = usage.level;
-    elements.count.textContent = core.formatTokenCount(tokens);
-    elements.collapsedCount.textContent = core.formatTokenCount(tokens);
+    shell.dataset.estimateSource = estimate.kind;
+    elements.count.textContent = presentation.count;
+    elements.collapsedCount.textContent = presentation.count;
+    elements.tokenSuffix.textContent = presentation.suffix;
+    elements.source.textContent = presentation.source;
     elements.status.textContent = usage.label;
-    elements.rail.style.width = `${Math.min(100, (tokens / thresholds.critical) * 100)}%`;
+    elements.rail.style.width = `${Math.min(100, (estimate.tokens / thresholds.critical) * 100)}%`;
     elements.primary.textContent = checkpointResponse ? "Carry latest to new chat" : "Generate checkpoint";
     showWarning(usage.level);
   }
@@ -292,10 +465,13 @@
   colorScheme.addEventListener?.("change", applyTheme);
   setInterval(() => {
     if (currentPathname() !== lastPath || dom.findConversationRoot(document) !== observedRoot) scheduleRender();
+    if (activeConversationId && !isGenerating()) void refreshFullEstimate();
   }, 1_000);
 
   refreshObservedRoot();
   applyTheme();
+  syncConversationRoute();
+  wasGenerating = isGenerating();
   loadThresholds();
   consumePendingCheckpoint();
 })();
