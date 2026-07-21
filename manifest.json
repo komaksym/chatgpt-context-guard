@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "ChatGPT Context Guard",
   "version": "0.1.0",
-  "description": "Estimates visible ChatGPT conversation size and helps create checkpoints before context becomes risky.",
+  "description": "Estimates complete ChatGPT conversation history when available and helps create checkpoints before context becomes risky.",
   "icons": {
     "16": "assets/icon-16.png",
     "32": "assets/icon-32.png",
@@ -25,6 +25,7 @@
       "js": [
         "src/core.js",
         "src/dom.js",
+        "src/conversation.js",
         "src/content.js"
       ],
       "run_at": "document_idle"
