@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "ChatGPT Context Guard",
-  "version": "0.1.0",
-  "description": "Estimates complete ChatGPT conversation history when available and helps create checkpoints before context becomes risky.",
+  "version": "0.2.0",
+  "description": "Shows estimated ChatGPT context-window usage and helps create checkpoints before context becomes risky.",
   "icons": {
     "16": "assets/icon-16.png",
     "32": "assets/icon-32.png",
