@@ -8,6 +8,7 @@
   if (!core || !dom || !conversation || document.getElementById("chatgpt-context-guard-host")) return;
 
   const CACHE_KEY = "conversationEstimateCache";
+  const CONTEXT_WINDOW_STORAGE_KEY = "contextWindowTokens";
   const CACHE_LIMIT = 20;
   const REFRESH_INTERVAL_MS = 60_000;
   const RETRY_DELAY_MS = 30_000;
@@ -25,14 +26,14 @@
 
   const shell = document.createElement("section");
   shell.className = "guard";
-  shell.setAttribute("aria-label", "ChatGPT context estimate");
+  shell.setAttribute("aria-label", "ChatGPT context window estimate");
   shell.innerHTML = `
     <button class="collapsed" type="button" aria-label="Expand context estimate" hidden>
-      <span class="collapsed-dot"></span><span class="collapsed-count">0+</span>
+      <span class="collapsed-dot"></span><span class="collapsed-count">0%</span>
     </button>
     <div class="panel">
       <header>
-        <strong>Context estimate</strong>
+        <strong>Context window</strong>
         <div class="header-actions">
           <button class="icon-button settings-button" type="button" aria-label="Context Guard settings">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.6 3.2h4.8l.5 2a7.8 7.8 0 0 1 1.4.8l2-.6 2.4 4.2-1.5 1.4a8.5 8.5 0 0 1 0 1.7l1.5 1.4-2.4 4.2-2-.6a7.8 7.8 0 0 1-1.4.8l-.5 2H9.6l-.5-2a7.8 7.8 0 0 1-1.4-.8l-2 .6-2.4-4.2 1.5-1.4a8.5 8.5 0 0 1 0-1.7L3.3 9.6l2.4-4.2 2 .6a7.8 7.8 0 0 1 1.4-.8l.5-2Z"/><circle cx="12" cy="12" r="3"/></svg>
@@ -42,16 +43,16 @@
           </button>
         </div>
       </header>
+      <div class="usage-summary"><span class="usage-percent">0% used</span> <span class="usage-left">(100% left)</span></div>
       <div class="rail" aria-hidden="true"><span></span></div>
-      <div class="count"><span class="token-count">0+</span><span class="token-suffix"> loaded tokens</span></div>
+      <div class="count"><span class="token-count">0+</span><span class="context-separator"> / </span><span class="context-limit">258K</span><span class="token-suffix"> tokens loaded</span></div>
       <div class="source" role="status">Partial — only currently loaded messages counted</div>
       <div class="status" role="status"><span class="status-dot"></span><span class="status-text"></span></div>
-      <p class="disclaimer">Active user/assistant history estimate. Hidden system, tool, and reasoning context, server limits, truncation, and compaction are unknown.</p>
+      <p class="disclaimer">Estimated active user/assistant history versus a configurable context window. Hidden system, tool, and reasoning context, exact model input, server-side truncation, and compaction are unknown.</p>
       <button class="primary" type="button">Generate checkpoint</button>
       <form class="settings" hidden>
-        <label>Long conversation <input name="long" type="number" min="1" step="1000"></label>
-        <label>Checkpoint recommended <input name="warning" type="number" min="2" step="1000"></label>
-        <label>Start fresh chat <input name="critical" type="number" min="3" step="1000"></label>
+        <label>Context window <input name="contextWindowTokens" type="number" min="1" step="1000"></label>
+        <p class="settings-help">Default: 258,000 tokens. Change this only if the selected model uses a different window.</p>
         <p class="settings-error" role="alert"></p>
         <div class="settings-actions">
           <button class="secondary cancel-settings" type="button">Cancel</button>
@@ -72,7 +73,10 @@
     panel: shell.querySelector(".panel"),
     collapsed: shell.querySelector(".collapsed"),
     collapsedCount: shell.querySelector(".collapsed-count"),
+    usagePercent: shell.querySelector(".usage-percent"),
+    usageLeft: shell.querySelector(".usage-left"),
     count: shell.querySelector(".token-count"),
+    contextLimit: shell.querySelector(".context-limit"),
     tokenSuffix: shell.querySelector(".token-suffix"),
     source: shell.querySelector(".source"),
     rail: shell.querySelector(".rail span"),
@@ -85,7 +89,8 @@
     warningCopy: shell.querySelector(".warning-copy"),
   };
 
-  let thresholds = core.DEFAULT_THRESHOLDS;
+  let contextWindowTokens = core.DEFAULT_CONTEXT_WINDOW_TOKENS;
+  let thresholds = core.thresholdsForContextWindow(contextWindowTokens);
   let warned = new Set();
   let lastPath = currentPathname();
   let updateTimer = 0;
@@ -318,20 +323,20 @@
     if (estimate.kind === "full") {
       return {
         count: core.formatTokenCount(estimate.tokens),
-        suffix: " full-history tokens",
-        source: "Complete active branch",
+        suffix: " tokens used",
+        source: "Complete active branch estimate",
       };
     }
     if (estimate.kind === "cached") {
       return {
         count: core.formatTokenCount(estimate.tokens),
-        suffix: " cached full-history tokens",
-        source: "Last complete snapshot; refresh unavailable",
+        suffix: " tokens used",
+        source: "Cached complete active branch estimate; refresh unavailable",
       };
     }
     return {
       count: `${core.formatTokenCount(estimate.tokens)}+`,
-      suffix: " loaded tokens",
+      suffix: " tokens loaded",
       source: "Partial — only currently loaded messages counted",
     };
   }
@@ -358,17 +363,22 @@
     wasGenerating = generating;
 
     const estimate = selectedEstimate(domMessages);
+    const contextUsage = core.contextWindowUsage(estimate.tokens, contextWindowTokens);
     const usage = core.classifyUsage(estimate.tokens, thresholds);
     const presentation = estimatePresentation(estimate);
+    const partial = estimate.kind === "partial";
 
     shell.dataset.level = usage.level;
     shell.dataset.estimateSource = estimate.kind;
+    elements.usagePercent.textContent = `${partial ? "≥" : ""}${contextUsage.usedPercent}% used`;
+    elements.usageLeft.textContent = `(${partial ? "≤" : ""}${contextUsage.leftPercent}% left)`;
     elements.count.textContent = presentation.count;
-    elements.collapsedCount.textContent = presentation.count;
+    elements.collapsedCount.textContent = `${partial ? "≥" : ""}${contextUsage.usedPercent}%`;
+    elements.contextLimit.textContent = core.formatTokenCount(contextWindowTokens);
     elements.tokenSuffix.textContent = presentation.suffix;
     elements.source.textContent = presentation.source;
     elements.status.textContent = usage.label;
-    elements.rail.style.width = `${Math.min(100, (estimate.tokens / thresholds.critical) * 100)}%`;
+    elements.rail.style.width = `${Math.min(100, contextUsage.ratio * 100)}%`;
     elements.primary.textContent = checkpointResponse ? "Carry latest to new chat" : "Generate checkpoint";
     showWarning(usage.level);
   }
@@ -378,21 +388,22 @@
     updateTimer = setTimeout(render, 250);
   }
 
-  async function loadThresholds() {
-    const stored = await chrome.storage.sync.get("thresholds");
-    if (stored.thresholds) {
-      try {
-        thresholds = core.normalizeThresholds(stored.thresholds);
-      } catch {
-        thresholds = core.DEFAULT_THRESHOLDS;
-      }
+  async function loadContextWindow() {
+    const stored = await chrome.storage.sync.get(CONTEXT_WINDOW_STORAGE_KEY);
+    try {
+      contextWindowTokens = core.normalizeContextWindowTokens(
+        stored[CONTEXT_WINDOW_STORAGE_KEY] ?? core.DEFAULT_CONTEXT_WINDOW_TOKENS,
+      );
+    } catch {
+      contextWindowTokens = core.DEFAULT_CONTEXT_WINDOW_TOKENS;
     }
+    thresholds = core.thresholdsForContextWindow(contextWindowTokens);
     renderSettings();
     render();
   }
 
   function renderSettings() {
-    for (const key of ["long", "warning", "critical"]) elements.settings.elements[key].value = thresholds[key];
+    elements.settings.elements.contextWindowTokens.value = contextWindowTokens;
     elements.settingsError.textContent = "";
   }
 
@@ -448,8 +459,10 @@
   elements.settings.addEventListener("submit", async (event) => {
     event.preventDefault();
     try {
-      thresholds = core.normalizeThresholds(Object.fromEntries(new FormData(elements.settings)));
-      await chrome.storage.sync.set({ thresholds });
+      const form = new FormData(elements.settings);
+      contextWindowTokens = core.normalizeContextWindowTokens(form.get("contextWindowTokens"));
+      thresholds = core.thresholdsForContextWindow(contextWindowTokens);
+      await chrome.storage.sync.set({ [CONTEXT_WINDOW_STORAGE_KEY]: contextWindowTokens });
       elements.settings.hidden = true;
       render();
     } catch (error) {
@@ -475,6 +488,6 @@
   applyTheme();
   syncConversationRoute();
   wasGenerating = isGenerating();
-  loadThresholds();
+  loadContextWindow();
   consumePendingCheckpoint();
 })();
