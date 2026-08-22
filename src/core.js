@@ -6,6 +6,7 @@
   "use strict";
 
   const DEFAULT_CONTEXT_WINDOW_TOKENS = 258_000;
+  const MIN_CONTEXT_WINDOW_TOKENS = 1_000;
   const CONTEXT_WARNING_RATIOS = Object.freeze({
     long: 0.65,
     warning: 0.8,
@@ -14,8 +15,11 @@
 
   function normalizeContextWindowTokens(value = DEFAULT_CONTEXT_WINDOW_TOKENS) {
     const tokens = Number(value);
-    if (!Number.isSafeInteger(tokens) || tokens <= 0) {
-      throw new TypeError("Context window must be a positive integer.");
+    if (!Number.isSafeInteger(tokens)) {
+      throw new TypeError("Context window must be an integer.");
+    }
+    if (tokens < MIN_CONTEXT_WINDOW_TOKENS) {
+      throw new RangeError("Context window must be at least 1,000 tokens.");
     }
     return tokens;
   }
