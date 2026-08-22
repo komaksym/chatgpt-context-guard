@@ -5,11 +5,53 @@
 })(typeof globalThis === "object" ? globalThis : this, function createCore() {
   "use strict";
 
-  const DEFAULT_THRESHOLDS = Object.freeze({
-    long: 250_000,
-    warning: 400_000,
-    critical: 600_000,
+  const DEFAULT_CONTEXT_WINDOW_TOKENS = 258_000;
+  const MIN_CONTEXT_WINDOW_TOKENS = 1_000;
+  const CONTEXT_WARNING_RATIOS = Object.freeze({
+    long: 0.65,
+    warning: 0.8,
+    critical: 0.95,
   });
+
+  function normalizeContextWindowTokens(value = DEFAULT_CONTEXT_WINDOW_TOKENS) {
+    const tokens = Number(value);
+    if (!Number.isSafeInteger(tokens)) {
+      throw new TypeError("Context window must be an integer.");
+    }
+    if (tokens < MIN_CONTEXT_WINDOW_TOKENS) {
+      throw new RangeError("Context window must be at least 1,000 tokens.");
+    }
+    return tokens;
+  }
+
+  function thresholdsForContextWindow(value = DEFAULT_CONTEXT_WINDOW_TOKENS) {
+    const contextWindowTokens = normalizeContextWindowTokens(value);
+    return {
+      long: Math.floor(contextWindowTokens * CONTEXT_WARNING_RATIOS.long),
+      warning: Math.floor(contextWindowTokens * CONTEXT_WARNING_RATIOS.warning),
+      critical: Math.floor(contextWindowTokens * CONTEXT_WARNING_RATIOS.critical),
+    };
+  }
+
+  const DEFAULT_THRESHOLDS = Object.freeze(thresholdsForContextWindow(DEFAULT_CONTEXT_WINDOW_TOKENS));
+
+  function contextWindowUsage(tokens, value = DEFAULT_CONTEXT_WINDOW_TOKENS) {
+    const usedTokens = Number(tokens);
+    if (!Number.isSafeInteger(usedTokens) || usedTokens < 0) {
+      throw new TypeError("Used tokens must be a non-negative integer.");
+    }
+    const contextWindowTokens = normalizeContextWindowTokens(value);
+    const ratio = usedTokens / contextWindowTokens;
+    const usedPercent = Math.floor(ratio * 100);
+    return {
+      usedTokens,
+      contextWindowTokens,
+      remainingTokens: Math.max(0, contextWindowTokens - usedTokens),
+      usedPercent,
+      leftPercent: Math.max(0, 100 - usedPercent),
+      ratio,
+    };
+  }
 
   function estimateTextTokens(text) {
     if (!text) return 0;
@@ -83,12 +125,16 @@
   }
 
   return Object.freeze({
+    DEFAULT_CONTEXT_WINDOW_TOKENS,
     DEFAULT_THRESHOLDS,
     classifyUsage,
+    contextWindowUsage,
     createCheckpointPrompt,
     estimateTextTokens,
     estimateTranscriptTokens,
     formatTokenCount,
+    normalizeContextWindowTokens,
     normalizeThresholds,
+    thresholdsForContextWindow,
   });
 });
