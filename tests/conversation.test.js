@@ -32,8 +32,9 @@ test("extracts conversation IDs from standard and nested routes", () => {
   assert.equal(conversationIdFromPathname("/"), "");
 });
 
-test("walks only the active current-node parent chain", () => {
+test("walks only the active current-node parent chain and keeps textual non-chat roles", () => {
   assert.deepEqual(activeBranchMessages(payload()), [
+    { id: "root", role: "system", text: "hidden" },
     { id: "user", role: "user", text: "question" },
     { id: "assistant-new", role: "assistant", text: "selected answer" },
   ]);
@@ -80,7 +81,7 @@ test("loads the session token in memory and fetches the active conversation", as
   assert.equal(calls[1].options.credentials, "include");
   assert.equal(calls[1].options.headers.Authorization, "Bearer ephemeral-token");
   assert.equal(calls[1].url, "https://chatgpt.com/backend-api/conversation/conversation-id");
-  assert.deepEqual(result.messages.map((message) => message.id), ["user", "assistant-new"]);
+  assert.deepEqual(result.messages.map((message) => message.id), ["root", "user", "assistant-new"]);
   assert.equal(result.currentNode, "assistant-new");
 });
 
@@ -105,11 +106,17 @@ test("surfaces authentication and conversation HTTP failures", async () => {
   );
 });
 
-test("creates a token-only ledger without conversation text or access tokens", () => {
-  const messages = activeBranchMessages(payload());
+test("creates a token-only ledger for every textual role without persisting text", () => {
+  const messages = [
+    { id: "system", role: "system", text: "abcd" },
+    { id: "developer", role: "developer", text: "abcdefgh" },
+    { id: "tool", role: "tool", text: "abcdefghijkl" },
+    { id: "user", role: "user", text: "abcd" },
+    { id: "assistant", role: "assistant", text: "abcd" },
+  ];
   const ledger = createTokenLedger({
     conversationId: "conversation-id",
-    currentNode: "assistant-new",
+    currentNode: "assistant",
     messages,
     estimateTextTokens,
     updatedAt: 1234,
@@ -117,15 +124,18 @@ test("creates a token-only ledger without conversation text or access tokens", (
 
   assert.deepEqual(ledger, {
     conversationId: "conversation-id",
-    currentNode: "assistant-new",
+    currentNode: "assistant",
     messageTokens: {
-      user: { role: "user", tokens: 2 },
-      "assistant-new": { role: "assistant", tokens: 4 },
+      system: { role: "system", tokens: 1 },
+      developer: { role: "developer", tokens: 2 },
+      tool: { role: "tool", tokens: 3 },
+      user: { role: "user", tokens: 1 },
+      assistant: { role: "assistant", tokens: 1 },
     },
-    totalTokens: 6,
-    messageCount: 2,
+    totalTokens: 8,
+    messageCount: 5,
     updatedAt: 1234,
   });
   const serialized = JSON.stringify(ledger);
-  assert.doesNotMatch(serialized, /question|selected answer|ephemeral-token/);
+  assert.doesNotMatch(serialized, /abcd|ephemeral-token/);
 });
