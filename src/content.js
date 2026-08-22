@@ -8,6 +8,7 @@
   if (!core || !dom || !conversation || document.getElementById("chatgpt-context-guard-host")) return;
 
   const CACHE_KEY = "conversationEstimateCache";
+  const CACHE_VERSION = 2;
   const CONTEXT_WINDOW_STORAGE_KEY = "contextWindowTokens";
   const CACHE_LIMIT = 20;
   const REFRESH_INTERVAL_MS = 60_000;
@@ -210,8 +211,8 @@
   async function readEstimateCache() {
     const stored = await chrome.storage.local.get(CACHE_KEY);
     const cache = stored[CACHE_KEY];
-    if (cache?.version !== 1 || !cache.entries || typeof cache.entries !== "object") {
-      return { version: 1, entries: {} };
+    if (cache?.version !== CACHE_VERSION || !cache.entries || typeof cache.entries !== "object") {
+      return { version: CACHE_VERSION, entries: {} };
     }
     return cache;
   }
@@ -238,7 +239,7 @@
         .sort((left, right) => right[1].updatedAt - left[1].updatedAt)
         .slice(0, CACHE_LIMIT),
     );
-    await chrome.storage.local.set({ [CACHE_KEY]: { version: 1, entries } });
+    await chrome.storage.local.set({ [CACHE_KEY]: { version: CACHE_VERSION, entries } });
   }
 
   function loadActiveConversation(options) {
