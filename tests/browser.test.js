@@ -51,7 +51,7 @@ async function injectContentScript(
       const local = pending ? { pendingCheckpoint: pending } : {};
       if (ledger) {
         local.conversationEstimateCache = {
-          version: 1,
+          version: 2,
           entries: { [ledger.conversationId]: ledger },
         };
       }
@@ -121,15 +121,21 @@ async function appendMessage(page, role, text) {
   );
 }
 
+async function expandGuard(page) {
+  const collapsed = page.locator("#chatgpt-context-guard-host").locator(".collapsed");
+  if (await collapsed.isVisible()) await collapsed.click();
+}
+
 test("browser fixture uses the complete active branch instead of the mounted DOM window", async (t) => {
   const browser = await launchBrowser(t);
   const page = await browser.newPage();
   await injectContentScript(page, {
     fullConversation: {
-      currentNode: "assistant-api",
+      currentNode: "tool-api",
       messages: [
         { id: "user-api", role: "user", text: "x".repeat(4_000) },
         { id: "assistant-api", role: "assistant", text: "y".repeat(8_000) },
+        { id: "tool-api", role: "tool", text: "z".repeat(4_000) },
       ],
     },
   });
@@ -138,14 +144,20 @@ test("browser fixture uses the complete active branch instead of the mounted DOM
   await page.waitForFunction(
     () => document.querySelector("#chatgpt-context-guard-host").shadowRoot.querySelector(".guard").dataset.estimateSource === "full",
   );
-  assert.equal(await host.locator(".token-count").innerText(), "3K");
+  assert.equal(await host.locator(".collapsed").isVisible(), true);
+  assert.equal(await host.locator(".panel").isHidden(), true);
+  assert.equal(await host.locator(".collapsed-count").innerText(), "4K");
+
+  await expandGuard(page);
+  assert.equal(await host.locator(".token-count").innerText(), "4K");
   assert.equal((await host.locator(".token-suffix").innerText()).trim(), "tokens used");
   assert.equal(await host.locator(".source").innerText(), "Complete active branch estimate");
   assert.equal(await host.locator(".context-limit").innerText(), "258K");
 
   const cache = await page.evaluate(() => globalThis.__contextGuardStorage.local.conversationEstimateCache);
-  assert.equal(cache.entries.fixture.totalTokens, 3_000);
-  assert.doesNotMatch(JSON.stringify(cache), /xxxx|yyyy/);
+  assert.equal(cache.version, 2);
+  assert.equal(cache.entries.fixture.totalTokens, 4_000);
+  assert.doesNotMatch(JSON.stringify(cache), /xxxx|yyyy|zzzz/);
 });
 
 test("browser fixture shows Codex-style used and remaining context percentages", async (t) => {
@@ -163,6 +175,7 @@ test("browser fixture shows Codex-style used and remaining context percentages",
   await page.waitForFunction(
     () => document.querySelector("#chatgpt-context-guard-host").shadowRoot.querySelector(".guard").dataset.estimateSource === "full",
   );
+  await expandGuard(page);
   assert.equal(await host.locator(".usage-percent").innerText(), "18% used");
   assert.equal(await host.locator(".usage-left").innerText(), "(82% left)");
   assert.equal(await host.locator(".token-count").innerText(), "48K");
@@ -184,6 +197,7 @@ test("a full snapshot becomes cached while generation changes the conversation",
   await page.waitForFunction(
     () => document.querySelector("#chatgpt-context-guard-host").shadowRoot.querySelector(".guard").dataset.estimateSource === "full",
   );
+  await expandGuard(page);
   await page.evaluate(() => {
     const stop = document.createElement("button");
     stop.dataset.testid = "stop-button";
@@ -207,7 +221,7 @@ test("browser fixture labels a cached full-history snapshot when refresh fails",
     cachedLedger: {
       conversationId: "fixture",
       currentNode: "cached-node",
-      messageTokens: { one: { role: "user", tokens: 4_321 } },
+      messageTokens: { one: { role: "tool", tokens: 4_321 } },
       totalTokens: 4_321,
       messageCount: 1,
       updatedAt: 1234,
@@ -218,6 +232,8 @@ test("browser fixture labels a cached full-history snapshot when refresh fails",
   await page.waitForFunction(
     () => document.querySelector("#chatgpt-context-guard-host").shadowRoot.querySelector(".guard").dataset.estimateSource === "cached",
   );
+  assert.equal(await host.locator(".collapsed-count").innerText(), "4.3K");
+  await expandGuard(page);
   assert.equal(await host.locator(".token-count").innerText(), "4.3K");
   assert.equal((await host.locator(".token-suffix").innerText()).trim(), "tokens used");
   assert.equal(await host.locator(".source").innerText(), "Cached complete active branch estimate; refresh unavailable");
@@ -232,6 +248,8 @@ test("browser fixture marks an uncached DOM estimate as partial", async (t) => {
   await page.waitForFunction(
     () => document.querySelector("#chatgpt-context-guard-host").shadowRoot.querySelector(".guard").dataset.estimateSource === "partial",
   );
+  assert.match(await host.locator(".collapsed-count").innerText(), /\+$/);
+  await expandGuard(page);
   assert.match(await host.locator(".token-count").innerText(), /\+$/);
   assert.equal((await host.locator(".token-suffix").innerText()).trim(), "tokens loaded");
   assert.equal(await host.locator(".source").innerText(), "Partial — only currently loaded messages counted");
@@ -245,6 +263,7 @@ test("browser fixture verifies multi-block extraction, explicit theme, and short
   const messages = await page.evaluate(() => globalThis.ContextGuardDom.conversationMessages(document));
   assert.equal(messages[1].text, "first block\n\nnested duplicate\nsecond block");
 
+  await expandGuard(page);
   const host = page.locator("#chatgpt-context-guard-host");
   const primary = host.locator(".primary");
   await primary.click();
@@ -263,6 +282,7 @@ test("browser fixture carries the checkpoint response and consumes it in a fresh
   const browser = await launchBrowser(t);
   const page = await browser.newPage();
   await injectContentScript(page);
+  await expandGuard(page);
 
   const primary = page.locator("#chatgpt-context-guard-host").locator(".primary");
   await primary.click();
@@ -302,7 +322,7 @@ test("10,000-message browser DOM stays responsive through extraction and observe
   const browser = await launchBrowser(t);
   const page = await browser.newPage();
   await injectContentScript(page);
-  const count = page.locator("#chatgpt-context-guard-host").locator(".token-count");
+  const count = page.locator("#chatgpt-context-guard-host").locator(".collapsed-count");
   const initialCount = await count.innerText();
 
   const measurement = await page.evaluate(() => {
@@ -330,7 +350,7 @@ test("10,000-message browser DOM stays responsive through extraction and observe
   assert.equal(measurement.messageCount, 10_002);
   assert.ok(measurement.adapterElapsed < 1_500, `expected browser extraction <1500ms, got ${measurement.adapterElapsed.toFixed(1)}ms`);
   await page.waitForFunction(
-    (before) => document.querySelector("#chatgpt-context-guard-host").shadowRoot.querySelector(".token-count").textContent !== before,
+    (before) => document.querySelector("#chatgpt-context-guard-host").shadowRoot.querySelector(".collapsed-count").textContent !== before,
     initialCount,
     { timeout: 5_000 },
   );
@@ -349,7 +369,7 @@ test("10,000-message browser DOM stays responsive through extraction and observe
     }
   });
   await page.waitForFunction(
-    (before) => document.querySelector("#chatgpt-context-guard-host").shadowRoot.querySelector(".token-count").textContent !== before,
+    (before) => document.querySelector("#chatgpt-context-guard-host").shadowRoot.querySelector(".collapsed-count").textContent !== before,
     beforeBurst,
     { timeout: 5_000 },
   );

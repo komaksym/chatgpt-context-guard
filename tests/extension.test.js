@@ -8,6 +8,7 @@ const root = path.resolve(__dirname, "..");
 test("manifest is a minimal MV3 ChatGPT-only content extension", () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8"));
   assert.equal(manifest.manifest_version, 3);
+  assert.equal(manifest.version, "0.2.1");
   assert.deepEqual(manifest.permissions, ["storage"]);
   assert.deepEqual(manifest.host_permissions.sort(), ["https://chat.openai.com/*", "https://chatgpt.com/*"]);
   assert.deepEqual(manifest.content_scripts[0].js, [
@@ -28,6 +29,7 @@ test("content script uses full conversation estimates without weakening checkpoi
   assert.match(source, /ContextGuardConversation/);
   assert.match(source, /fetchActiveConversation/);
   assert.match(source, /conversationEstimateCache/);
+  assert.match(source, /const CACHE_VERSION = 2/);
   assert.match(source, /conversationMessages\(\)/);
   assert.match(source, /findConversationRoot/);
   assert.match(source, /MutationObserver/);
@@ -49,6 +51,15 @@ test("conversation adapter keeps authentication ephemeral and follows the active
   assert.doesNotMatch(source, /chrome\.storage|localStorage|sessionStorage/);
 });
 
+test("widget defaults to the compact token-count pill and expands on demand", () => {
+  const source = fs.readFileSync(path.join(root, "src/content.js"), "utf8");
+  assert.match(source, /<button class="collapsed" type="button" aria-label="Expand context estimate">/);
+  assert.match(source, /<div class="panel" hidden>/);
+  assert.match(source, /elements\.collapsedCount\.textContent\s*=\s*presentation\.count/);
+  assert.match(source, /elements\.panel\.hidden = false/);
+  assert.match(source, /elements\.collapsed\.hidden = true/);
+});
+
 test("widget shows Codex-style context-window usage while keeping estimate provenance honest", () => {
   const source = fs.readFileSync(path.join(root, "src/content.js"), "utf8");
   const styles = fs.readFileSync(path.join(root, "src/styles.css"), "utf8");
@@ -62,9 +73,9 @@ test("widget shows Codex-style context-window usage while keeping estimate prove
   assert.match(source, /Complete active branch estimate/);
   assert.match(source, /Cached complete active branch estimate; refresh unavailable/);
   assert.match(source, /Partial — only currently loaded messages counted/);
-  assert.match(source, /Estimated active user\/assistant history versus a configurable context window/);
-  assert.match(source, /Hidden system, tool, and reasoning context, exact model input/);
-  assert.match(source, /server-side truncation, and compaction are unknown/);
+  assert.match(source, /Estimated textual active-branch history versus a configurable context window/);
+  assert.match(source, /Context not exposed by ChatGPT, exact model input/);
+  assert.match(source, /server-side truncation, and compaction remain unknown/);
   assert.match(source, /data-theme/);
   assert.match(styles, /usage-summary/);
   assert.match(styles, /data-theme="dark"/);

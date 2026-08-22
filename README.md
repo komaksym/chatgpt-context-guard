@@ -4,7 +4,9 @@ ChatGPT Context Guard is a local-only Chrome extension that estimates the size o
 
 ## Context-window readout
 
-The meter shows the same useful shape as the Codex app:
+The meter stays folded by default as a compact token-count pill. Click the pill to expand the full readout.
+
+The expanded meter shows the same useful shape as the Codex app:
 
 - **percent used / percent left**;
 - **estimated tokens used / configured context-window size**;
@@ -22,15 +24,17 @@ Warnings are derived from the configured window instead of unrelated absolute to
 
 For saved conversation routes, the extension first tries to load ChatGPT's complete active conversation branch from ChatGPT's own same-origin conversation data. This avoids undercounting when the page virtualizes old messages and removes them from the DOM.
 
+The meter counts every textual message exposed on that active branch, including user, assistant, system/developer, and tool roles. It does not count inactive regenerated sibling branches.
+
 The meter labels the source of every estimate:
 
 - **Full history** — a fresh complete active-branch snapshot.
 - **Cached full history** — the most recent complete snapshot when refreshing is unavailable.
 - **Partial loaded history** — only currently mounted page messages; the number includes a `+` suffix and the percentage is shown as a lower bound.
 
-Only token counts and message IDs are cached locally. Conversation text and access tokens are never persisted. The ChatGPT conversation endpoint is undocumented and may change, so the DOM fallback is intentional.
+Only token counts, roles, and message IDs are cached locally. Conversation text and access tokens are never persisted. The ChatGPT conversation endpoint is undocumented and may change, so the DOM fallback is intentional.
 
-The numerator is still an estimate of active user/assistant history, not the exact model input. Hidden system instructions, tool payloads, reasoning context, server-side truncation, and compaction are unknown. The configured denominator is also not automatically model-detected. Treat the meter as an early-warning context gauge, not server-authoritative telemetry.
+The numerator is still an estimate, not server-authoritative token telemetry. Tokenization uses a lightweight local heuristic rather than the selected model's exact tokenizer, and context that ChatGPT does not expose to the page is unknowable. Server-side truncation and compaction are also unknown. The configured denominator is not automatically model-detected.
 
 ## Install from source
 
@@ -42,7 +46,7 @@ The numerator is still an estimate of active user/assistant history, not the exa
 
 ## Checkpoint workflow
 
-1. Click **Generate checkpoint**.
+1. Expand the meter and click **Generate checkpoint**.
 2. Review the prompt inserted into ChatGPT and send it yourself.
 3. After ChatGPT finishes the checkpoint response, click **Carry latest to new chat**. The extension captures that checkpoint response, so later turns cannot replace it.
 4. The extension opens a fresh chat and prefills its composer with the captured checkpoint. It never sends a message automatically.

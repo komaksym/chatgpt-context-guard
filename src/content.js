@@ -8,6 +8,7 @@
   if (!core || !dom || !conversation || document.getElementById("chatgpt-context-guard-host")) return;
 
   const CACHE_KEY = "conversationEstimateCache";
+  const CACHE_VERSION = 2;
   const CONTEXT_WINDOW_STORAGE_KEY = "contextWindowTokens";
   const CACHE_LIMIT = 20;
   const REFRESH_INTERVAL_MS = 60_000;
@@ -28,10 +29,10 @@
   shell.className = "guard";
   shell.setAttribute("aria-label", "ChatGPT context window estimate");
   shell.innerHTML = `
-    <button class="collapsed" type="button" aria-label="Expand context estimate" hidden>
-      <span class="collapsed-dot"></span><span class="collapsed-count">0%</span>
+    <button class="collapsed" type="button" aria-label="Expand context estimate">
+      <span class="collapsed-dot"></span><span class="collapsed-count">0+</span>
     </button>
-    <div class="panel">
+    <div class="panel" hidden>
       <header>
         <strong>Context window</strong>
         <div class="header-actions">
@@ -48,7 +49,7 @@
       <div class="count"><span class="token-count">0+</span><span class="context-separator"> / </span><span class="context-limit">258K</span><span class="token-suffix"> tokens loaded</span></div>
       <div class="source" role="status">Partial — only currently loaded messages counted</div>
       <div class="status" role="status"><span class="status-dot"></span><span class="status-text"></span></div>
-      <p class="disclaimer">Estimated active user/assistant history versus a configurable context window. Hidden system, tool, and reasoning context, exact model input, server-side truncation, and compaction are unknown.</p>
+      <p class="disclaimer">Estimated textual active-branch history versus a configurable context window. Context not exposed by ChatGPT, exact model input, server-side truncation, and compaction remain unknown.</p>
       <button class="primary" type="button">Generate checkpoint</button>
       <form class="settings" hidden>
         <label>Context window <input name="contextWindowTokens" type="number" min="1000" step="1000"></label>
@@ -210,8 +211,8 @@
   async function readEstimateCache() {
     const stored = await chrome.storage.local.get(CACHE_KEY);
     const cache = stored[CACHE_KEY];
-    if (cache?.version !== 1 || !cache.entries || typeof cache.entries !== "object") {
-      return { version: 1, entries: {} };
+    if (cache?.version !== CACHE_VERSION || !cache.entries || typeof cache.entries !== "object") {
+      return { version: CACHE_VERSION, entries: {} };
     }
     return cache;
   }
@@ -238,7 +239,7 @@
         .sort((left, right) => right[1].updatedAt - left[1].updatedAt)
         .slice(0, CACHE_LIMIT),
     );
-    await chrome.storage.local.set({ [CACHE_KEY]: { version: 1, entries } });
+    await chrome.storage.local.set({ [CACHE_KEY]: { version: CACHE_VERSION, entries } });
   }
 
   function loadActiveConversation(options) {
@@ -374,7 +375,7 @@
     elements.usagePercent.textContent = `${partialPercent ? "≥" : ""}${contextUsage.usedPercent}% used`;
     elements.usageLeft.textContent = `(${partial ? "≤" : ""}${contextUsage.leftPercent}% left)`;
     elements.count.textContent = presentation.count;
-    elements.collapsedCount.textContent = `${partialPercent ? "≥" : ""}${contextUsage.usedPercent}%`;
+    elements.collapsedCount.textContent = presentation.count;
     elements.contextLimit.textContent = core.formatTokenCount(contextWindowTokens);
     elements.tokenSuffix.textContent = presentation.suffix;
     elements.source.textContent = presentation.source;
