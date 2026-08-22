@@ -55,7 +55,7 @@
           text: contentText(message?.content),
         };
       })
-      .filter((message) => (message.role === "user" || message.role === "assistant") && message.text);
+      .filter((message) => message.text);
   }
 
   async function readJson(response, label) {
@@ -110,9 +110,9 @@
     const messageTokens = {};
     let totalTokens = 0;
     for (const message of messages || []) {
-      if (!message?.id || (message.role !== "user" && message.role !== "assistant")) continue;
+      if (!message?.id || !message.text) continue;
       const tokens = estimateTextTokens(message.text);
-      messageTokens[message.id] = { role: message.role, tokens };
+      messageTokens[message.id] = { role: message.role || "", tokens };
       totalTokens += tokens;
     }
     return {
