@@ -51,7 +51,7 @@
       <p class="disclaimer">Estimated active user/assistant history versus a configurable context window. Hidden system, tool, and reasoning context, exact model input, server-side truncation, and compaction are unknown.</p>
       <button class="primary" type="button">Generate checkpoint</button>
       <form class="settings" hidden>
-        <label>Context window <input name="contextWindowTokens" type="number" min="1" step="1000"></label>
+        <label>Context window <input name="contextWindowTokens" type="number" min="1000" step="1000"></label>
         <p class="settings-help">Default: 258,000 tokens. Change this only if the selected model uses a different window.</p>
         <p class="settings-error" role="alert"></p>
         <div class="settings-actions">
@@ -367,13 +367,14 @@
     const usage = core.classifyUsage(estimate.tokens, thresholds);
     const presentation = estimatePresentation(estimate);
     const partial = estimate.kind === "partial";
+    const partialPercent = partial && contextUsage.usedPercent > 0;
 
     shell.dataset.level = usage.level;
     shell.dataset.estimateSource = estimate.kind;
-    elements.usagePercent.textContent = `${partial ? "≥" : ""}${contextUsage.usedPercent}% used`;
+    elements.usagePercent.textContent = `${partialPercent ? "≥" : ""}${contextUsage.usedPercent}% used`;
     elements.usageLeft.textContent = `(${partial ? "≤" : ""}${contextUsage.leftPercent}% left)`;
     elements.count.textContent = presentation.count;
-    elements.collapsedCount.textContent = `${partial ? "≥" : ""}${contextUsage.usedPercent}%`;
+    elements.collapsedCount.textContent = `${partialPercent ? "≥" : ""}${contextUsage.usedPercent}%`;
     elements.contextLimit.textContent = core.formatTokenCount(contextWindowTokens);
     elements.tokenSuffix.textContent = presentation.suffix;
     elements.source.textContent = presentation.source;
