@@ -56,10 +56,10 @@ test("derives warning bands from the configured context window", () => {
   assert.deepEqual(DEFAULT_THRESHOLDS, thresholdsForContextWindow(DEFAULT_CONTEXT_WINDOW_TOKENS));
 });
 
-test("normalizes context-window sizes and rejects invalid values", () => {
+test("normalizes context-window sizes and rejects unusably small or invalid values", () => {
   assert.equal(normalizeContextWindowTokens("258000"), 258_000);
-  assert.throws(() => normalizeContextWindowTokens(0), /positive integer/);
-  assert.throws(() => normalizeContextWindowTokens(1.5), /positive integer/);
+  assert.throws(() => normalizeContextWindowTokens(999), /at least 1,000/);
+  assert.throws(() => normalizeContextWindowTokens(1.5), /integer/);
 });
 
 test("classifies all four usage bands at exact boundaries", () => {
