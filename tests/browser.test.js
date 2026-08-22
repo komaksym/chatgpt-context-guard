@@ -38,15 +38,16 @@ async function injectContentScript(
     fullConversation = null,
     cachedLedger = null,
     failAfterFirstFetch = false,
+    contextWindowTokens = null,
   } = {},
 ) {
   await page.setContent(fixture);
   await page.evaluate(
-    ({ pending, pathname, shouldClearMessages, conversationData, ledger, failAfterFirst }) => {
+    ({ pending, pathname, shouldClearMessages, conversationData, ledger, failAfterFirst, contextLimit }) => {
       if (shouldClearMessages) {
         document.querySelectorAll('[data-message-author-role="user"], [data-message-author-role="assistant"]').forEach((node) => node.remove());
       }
-      const sync = {};
+      const sync = contextLimit ? { contextWindowTokens: contextLimit } : {};
       const local = pending ? { pendingCheckpoint: pending } : {};
       if (ledger) {
         local.conversationEstimateCache = {
@@ -95,6 +96,7 @@ async function injectContentScript(
       conversationData: fullConversation,
       ledger: cachedLedger,
       failAfterFirst: failAfterFirstFetch,
+      contextLimit: contextWindowTokens,
     },
   );
   await page.addScriptTag({ path: path.join(root, "src/core.js") });
@@ -137,12 +139,35 @@ test("browser fixture uses the complete active branch instead of the mounted DOM
     () => document.querySelector("#chatgpt-context-guard-host").shadowRoot.querySelector(".guard").dataset.estimateSource === "full",
   );
   assert.equal(await host.locator(".token-count").innerText(), "3K");
-  assert.equal((await host.locator(".token-suffix").innerText()).trim(), "full-history tokens");
-  assert.equal(await host.locator(".source").innerText(), "Complete active branch");
+  assert.equal((await host.locator(".token-suffix").innerText()).trim(), "tokens used");
+  assert.equal(await host.locator(".source").innerText(), "Complete active branch estimate");
+  assert.equal(await host.locator(".context-limit").innerText(), "258K");
 
   const cache = await page.evaluate(() => globalThis.__contextGuardStorage.local.conversationEstimateCache);
   assert.equal(cache.entries.fixture.totalTokens, 3_000);
   assert.doesNotMatch(JSON.stringify(cache), /xxxx|yyyy/);
+});
+
+test("browser fixture shows Codex-style used and remaining context percentages", async (t) => {
+  const browser = await launchBrowser(t);
+  const page = await browser.newPage();
+  await injectContentScript(page, {
+    contextWindowTokens: 258_000,
+    fullConversation: {
+      currentNode: "assistant-api",
+      messages: [{ id: "assistant-api", role: "assistant", text: "x".repeat(192_000) }],
+    },
+  });
+
+  const host = page.locator("#chatgpt-context-guard-host");
+  await page.waitForFunction(
+    () => document.querySelector("#chatgpt-context-guard-host").shadowRoot.querySelector(".guard").dataset.estimateSource === "full",
+  );
+  assert.equal(await host.locator(".usage-percent").innerText(), "18% used");
+  assert.equal(await host.locator(".usage-left").innerText(), "(82% left)");
+  assert.equal(await host.locator(".token-count").innerText(), "48K");
+  assert.equal(await host.locator(".context-limit").innerText(), "258K");
+  assert.equal((await host.locator(".token-suffix").innerText()).trim(), "tokens used");
 });
 
 test("a full snapshot becomes cached while generation changes the conversation", async (t) => {
@@ -171,8 +196,8 @@ test("a full snapshot becomes cached while generation changes the conversation",
   await page.waitForFunction(() => globalThis.__contextGuardFetchCount > 1);
 
   const host = page.locator("#chatgpt-context-guard-host");
-  assert.equal((await host.locator(".token-suffix").innerText()).trim(), "cached full-history tokens");
-  assert.equal(await host.locator(".source").innerText(), "Last complete snapshot; refresh unavailable");
+  assert.equal((await host.locator(".token-suffix").innerText()).trim(), "tokens used");
+  assert.equal(await host.locator(".source").innerText(), "Cached complete active branch estimate; refresh unavailable");
 });
 
 test("browser fixture labels a cached full-history snapshot when refresh fails", async (t) => {
@@ -194,8 +219,8 @@ test("browser fixture labels a cached full-history snapshot when refresh fails",
     () => document.querySelector("#chatgpt-context-guard-host").shadowRoot.querySelector(".guard").dataset.estimateSource === "cached",
   );
   assert.equal(await host.locator(".token-count").innerText(), "4.3K");
-  assert.equal((await host.locator(".token-suffix").innerText()).trim(), "cached full-history tokens");
-  assert.equal(await host.locator(".source").innerText(), "Last complete snapshot; refresh unavailable");
+  assert.equal((await host.locator(".token-suffix").innerText()).trim(), "tokens used");
+  assert.equal(await host.locator(".source").innerText(), "Cached complete active branch estimate; refresh unavailable");
 });
 
 test("browser fixture marks an uncached DOM estimate as partial", async (t) => {
@@ -208,7 +233,7 @@ test("browser fixture marks an uncached DOM estimate as partial", async (t) => {
     () => document.querySelector("#chatgpt-context-guard-host").shadowRoot.querySelector(".guard").dataset.estimateSource === "partial",
   );
   assert.match(await host.locator(".token-count").innerText(), /\+$/);
-  assert.equal((await host.locator(".token-suffix").innerText()).trim(), "loaded tokens");
+  assert.equal((await host.locator(".token-suffix").innerText()).trim(), "tokens loaded");
   assert.equal(await host.locator(".source").innerText(), "Partial — only currently loaded messages counted");
 });
 
