@@ -50,10 +50,10 @@ header {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
 
-header strong { font-size: 16px; line-height: 1.25; }
+header strong { color: var(--guard-muted); font-size: 16px; font-weight: 500; line-height: 1.25; }
 .header-actions { display: flex; gap: 2px; }
 .icon-button {
   width: 30px;
@@ -78,6 +78,14 @@ header strong { font-size: 16px; line-height: 1.25; }
   vertical-align: middle;
 }
 
+.usage-summary {
+  margin-bottom: 10px;
+  font-size: 19px;
+  line-height: 1.25;
+}
+.usage-percent { font-weight: 650; }
+.usage-left { color: var(--guard-muted); }
+
 .rail {
   height: 7px;
   overflow: hidden;
@@ -94,11 +102,13 @@ header strong { font-size: 16px; line-height: 1.25; }
 }
 
 .count {
-  margin-top: 15px;
-  font-size: 18px;
+  margin-top: 12px;
+  font-size: 16px;
   line-height: 1.25;
 }
-.token-count { font-size: 26px; font-weight: 650; letter-spacing: -0.025em; }
+.token-count,
+.context-limit { font-size: 18px; font-weight: 600; letter-spacing: -0.015em; }
+.context-separator,
 .token-suffix { color: var(--guard-muted); font-size: 14px; }
 .source { margin-top: 6px; color: var(--guard-muted); font-size: 12px; line-height: 1.35; }
 .status {
@@ -169,6 +179,7 @@ header strong { font-size: 16px; line-height: 1.25; }
   color: var(--guard-text);
   background: var(--guard-bg);
 }
+.settings-help { margin: 0; color: var(--guard-muted); font-size: 11px; line-height: 1.35; }
 .settings-error { min-height: 16px; margin: 0; color: #df2f36; font-size: 12px; }
 .settings-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .secondary { min-height: 34px; padding: 0 12px; border: 1px solid var(--guard-border); color: var(--guard-text); background: transparent; }
