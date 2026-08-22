@@ -49,16 +49,24 @@ test("conversation adapter keeps authentication ephemeral and follows the active
   assert.doesNotMatch(source, /chrome\.storage|localStorage|sessionStorage/);
 });
 
-test("widget distinguishes full, cached, and partial estimates honestly", () => {
+test("widget shows Codex-style context-window usage while keeping estimate provenance honest", () => {
   const source = fs.readFileSync(path.join(root, "src/content.js"), "utf8");
   const styles = fs.readFileSync(path.join(root, "src/styles.css"), "utf8");
-  assert.match(source, /full-history tokens/);
-  assert.match(source, /cached full-history tokens/);
+  assert.match(source, />Context window</);
+  assert.match(source, /usage-percent/);
+  assert.match(source, /usage-left/);
+  assert.match(source, /context-limit/);
+  assert.match(source, /contextWindowTokens/);
+  assert.match(source, /contextWindowUsage/);
+  assert.match(source, /thresholdsForContextWindow/);
+  assert.match(source, /Complete active branch estimate/);
+  assert.match(source, /Cached complete active branch estimate; refresh unavailable/);
   assert.match(source, /Partial — only currently loaded messages counted/);
-  assert.match(source, /Active user\/assistant history estimate/);
-  assert.match(source, /Hidden system, tool, and reasoning context/);
-  assert.match(source, /server limits, truncation, and compaction are unknown/);
+  assert.match(source, /Estimated active user\/assistant history versus a configurable context window/);
+  assert.match(source, /Hidden system, tool, and reasoning context, exact model input/);
+  assert.match(source, /server-side truncation, and compaction are unknown/);
   assert.match(source, /data-theme/);
+  assert.match(styles, /usage-summary/);
   assert.match(styles, /data-theme="dark"/);
   assert.match(styles, /prefers-color-scheme:\s*dark/);
   assert.match(styles, /prefers-reduced-motion/);
