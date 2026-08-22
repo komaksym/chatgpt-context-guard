@@ -1,6 +1,22 @@
 # ChatGPT Context Guard
 
-ChatGPT Context Guard is a local-only Chrome extension that estimates the size of the active ChatGPT conversation history. It warns before a long thread becomes risky and prepares a structured checkpoint for continuing in a fresh chat.
+ChatGPT Context Guard is a local-only Chrome extension that estimates the size of the active ChatGPT conversation history. It shows a Codex-style context-window readout, warns before a long thread becomes risky, and prepares a structured checkpoint for continuing in a fresh chat.
+
+## Context-window readout
+
+The meter shows the same useful shape as the Codex app:
+
+- **percent used / percent left**;
+- **estimated tokens used / configured context-window size**;
+- a progress rail and warning state.
+
+The default context-window size is **258,000 tokens**. ChatGPT's web UI does not expose an authoritative per-chat model context limit to extensions, so the denominator is configurable from the meter settings. If the model you selected uses a different window, change that value there.
+
+Warnings are derived from the configured window instead of unrelated absolute token thresholds:
+
+- 65%: long conversation;
+- 80%: checkpoint recommended;
+- 95%: start a fresh chat.
 
 ## What it can and cannot measure
 
@@ -10,19 +26,11 @@ The meter labels the source of every estimate:
 
 - **Full history** — a fresh complete active-branch snapshot.
 - **Cached full history** — the most recent complete snapshot when refreshing is unavailable.
-- **Partial loaded history** — only currently mounted page messages; the number includes a `+` suffix.
+- **Partial loaded history** — only currently mounted page messages; the number includes a `+` suffix and the percentage is shown as a lower bound.
 
 Only token counts and message IDs are cached locally. Conversation text and access tokens are never persisted. The ChatGPT conversation endpoint is undocumented and may change, so the DOM fallback is intentional.
 
-The meter still cannot see hidden system instructions, tool payloads, reasoning tokens, the exact content ChatGPT sends to the model, server-side truncation, or compaction. Treat it as an early-warning estimate, not an exact context-window gauge.
-
-Default warning thresholds:
-
-- 250K: long conversation
-- 400K: checkpoint recommended
-- 600K: start a fresh chat
-
-All thresholds are configurable from the meter.
+The numerator is still an estimate of active user/assistant history, not the exact model input. Hidden system instructions, tool payloads, reasoning context, server-side truncation, and compaction are unknown. The configured denominator is also not automatically model-detected. Treat the meter as an early-warning context gauge, not server-authoritative telemetry.
 
 ## Install from source
 
