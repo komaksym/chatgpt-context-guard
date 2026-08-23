@@ -12,6 +12,7 @@ const files = [
   "tests/dom.test.js",
   "tests/conversation.test.js",
   "tests/extension.test.js",
+  "tests/hit-testing.test.js",
   "tests/browser.test.js",
   "scripts/check.js",
   "scripts/build.js",
