@@ -12,6 +12,7 @@
   bottom: 20px;
   color-scheme: light dark;
   font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  pointer-events: none;
 }
 
 * { box-sizing: border-box; }
@@ -35,6 +36,7 @@ button { cursor: pointer; }
 .panel,
 .warning-toast,
 .collapsed {
+  pointer-events: auto;
   background: var(--guard-bg);
   border: 1px solid var(--guard-border);
   box-shadow: 0 8px 28px rgb(0 0 0 / 12%);

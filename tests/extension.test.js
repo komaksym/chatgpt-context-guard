@@ -8,7 +8,7 @@ const root = path.resolve(__dirname, "..");
 test("manifest is a minimal MV3 ChatGPT-only content extension", () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8"));
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, "0.2.1");
+  assert.equal(manifest.version, "0.2.2");
   assert.deepEqual(manifest.permissions, ["storage"]);
   assert.deepEqual(manifest.host_permissions.sort(), ["https://chat.openai.com/*", "https://chatgpt.com/*"]);
   assert.deepEqual(manifest.content_scripts[0].js, [
