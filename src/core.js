@@ -109,6 +109,37 @@
     return `${Number((tokens / 1_000_000).toFixed(2))}M`;
   }
 
+  function isExtensionContextInvalidatedError(error) {
+    return /extension context invalidated/i.test(String(error?.message || error || ""));
+  }
+
+  function createExtensionRuntime({ onInvalidate = () => {} } = {}) {
+    let active = true;
+
+    function invalidate() {
+      if (!active) return;
+      active = false;
+      onInvalidate();
+    }
+
+    async function call(operation, fallback) {
+      if (!active) return fallback;
+      try {
+        return await operation();
+      } catch (error) {
+        if (!isExtensionContextInvalidatedError(error)) throw error;
+        invalidate();
+        return fallback;
+      }
+    }
+
+    return Object.freeze({
+      call,
+      invalidate,
+      isActive: () => active,
+    });
+  }
+
   function createCheckpointPrompt() {
     return [
       "Create a lossless task checkpoint for continuing this work in a fresh chat.",
@@ -130,9 +161,11 @@
     classifyUsage,
     contextWindowUsage,
     createCheckpointPrompt,
+    createExtensionRuntime,
     estimateTextTokens,
     estimateTranscriptTokens,
     formatTokenCount,
+    isExtensionContextInvalidatedError,
     normalizeContextWindowTokens,
     normalizeThresholds,
     thresholdsForContextWindow,
