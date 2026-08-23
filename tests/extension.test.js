@@ -8,7 +8,7 @@ const root = path.resolve(__dirname, "..");
 test("manifest is a minimal MV3 ChatGPT-only content extension", () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8"));
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, "0.2.2");
+  assert.equal(manifest.version, "0.2.3");
   assert.deepEqual(manifest.permissions, ["storage"]);
   assert.deepEqual(manifest.host_permissions.sort(), ["https://chat.openai.com/*", "https://chatgpt.com/*"]);
   assert.deepEqual(manifest.content_scripts[0].js, [
@@ -39,6 +39,23 @@ test("content script uses full conversation estimates without weakening checkpoi
   assert.doesNotMatch(source, /latest\.length\s*>\s*80/);
   assert.doesNotMatch(source, /observe\(document\.body/);
   assert.doesNotMatch(source, /XMLHttpRequest|window\.fetch\s*=|webRequest/);
+});
+
+test("content refresh is event-driven and stale extension instances shut down cleanly", () => {
+  const source = fs.readFileSync(path.join(root, "src/content.js"), "utf8");
+  assert.doesNotMatch(source, /REFRESH_INTERVAL_MS|RETRY_DELAY_MS|lastFullRefreshAt|nextRetryAt/);
+  assert.match(source, /createExtensionRuntime\(\{ onInvalidate: shutdown \}\)/);
+  assert.match(source, /function chromeCall\(/);
+  assert.match(source, /clearInterval\(heartbeatTimer\)/);
+  assert.match(source, /conversationObserver\.disconnect\(\)/);
+  assert.match(source, /themeObserver\.disconnect\(\)/);
+  assert.match(source, /host\.remove\(\)/);
+  assert.match(source, /if \(wasGenerating && !generating\) void refreshFullEstimate\(\)/);
+  assert.match(source, /activeConversationId === conversationId\) await refreshFullEstimate\(\)/);
+
+  const heartbeat = source.match(/heartbeatTimer\s*=\s*setInterval\(\(\)\s*=>\s*\{([\s\S]*?)\},\s*1_000\)/);
+  assert.ok(heartbeat, "expected local route/root heartbeat");
+  assert.doesNotMatch(heartbeat[1], /refreshFullEstimate/);
 });
 
 test("conversation adapter keeps authentication ephemeral and follows the active branch", () => {
