@@ -11,8 +11,6 @@
   const CACHE_VERSION = 2;
   const CONTEXT_WINDOW_STORAGE_KEY = "contextWindowTokens";
   const CACHE_LIMIT = 20;
-  const REFRESH_INTERVAL_MS = 60_000;
-  const RETRY_DELAY_MS = 30_000;
 
   const host = document.createElement("div");
   host.id = "chatgpt-context-guard-host";
@@ -95,6 +93,8 @@
   let warned = new Set();
   let lastPath = currentPathname();
   let updateTimer = 0;
+  let heartbeatTimer = 0;
+  let pendingInsertTimer = 0;
   let checkpointAnchor = [];
   let checkpointPrompt = "";
   let checkpointResponse = "";
@@ -102,15 +102,33 @@
   let activeConversationId = null;
   let estimateState = { kind: "partial", tokens: 0, messageCount: 0 };
   let estimateRequest = null;
-  let lastFullRefreshAt = 0;
-  let nextRetryAt = 0;
   let wasGenerating = false;
+  let stopped = false;
 
   const conversationObserver = new MutationObserver((mutations) => {
-    if (dom.mutationsAffectMessages(mutations)) scheduleRender();
+    if (!stopped && dom.mutationsAffectMessages(mutations)) scheduleRender();
   });
-  const themeObserver = new MutationObserver(() => applyTheme());
+  const themeObserver = new MutationObserver(() => {
+    if (!stopped) applyTheme();
+  });
   const colorScheme = matchMedia("(prefers-color-scheme: dark)");
+  const extensionRuntime = core.createExtensionRuntime({ onInvalidate: shutdown });
+
+  function shutdown() {
+    if (stopped) return;
+    stopped = true;
+    clearTimeout(updateTimer);
+    clearTimeout(pendingInsertTimer);
+    clearInterval(heartbeatTimer);
+    conversationObserver.disconnect();
+    themeObserver.disconnect();
+    colorScheme.removeEventListener?.("change", applyTheme);
+    host.remove();
+  }
+
+  function chromeCall(operation, fallback = null) {
+    return extensionRuntime.call(operation, fallback);
+  }
 
   function conversationMessages() {
     return dom.conversationMessages(document);
@@ -134,6 +152,7 @@
   }
 
   function setComposerText(text) {
+    if (stopped) return false;
     const composer = findComposer();
     if (!composer) return false;
     composer.focus();
@@ -185,10 +204,12 @@
   }
 
   function applyTheme() {
+    if (stopped) return;
     host.dataset.theme = dom.resolveTheme(document, colorScheme.matches);
   }
 
   function refreshObservedRoot() {
+    if (stopped) return;
     const nextRoot = dom.findConversationRoot(document);
     if (!nextRoot || nextRoot === observedRoot) return;
     conversationObserver.disconnect();
@@ -209,7 +230,8 @@
   }
 
   async function readEstimateCache() {
-    const stored = await chrome.storage.local.get(CACHE_KEY);
+    const stored = await chromeCall(() => chrome.storage.local.get(CACHE_KEY), null);
+    if (!stored) return null;
     const cache = stored[CACHE_KEY];
     if (cache?.version !== CACHE_VERSION || !cache.entries || typeof cache.entries !== "object") {
       return { version: CACHE_VERSION, entries: {} };
@@ -219,6 +241,7 @@
 
   async function restoreCachedEstimate(conversationId) {
     const cache = await readEstimateCache();
+    if (!cache || stopped) return;
     const ledger = cache.entries[conversationId];
     if (activeConversationId !== conversationId || !validLedger(ledger, conversationId)) return;
     estimateState = {
@@ -232,6 +255,7 @@
 
   async function storeLedger(ledger) {
     const cache = await readEstimateCache();
+    if (!cache || stopped) return;
     cache.entries[ledger.conversationId] = ledger;
     const entries = Object.fromEntries(
       Object.entries(cache.entries)
@@ -239,7 +263,10 @@
         .sort((left, right) => right[1].updatedAt - left[1].updatedAt)
         .slice(0, CACHE_LIMIT),
     );
-    await chrome.storage.local.set({ [CACHE_KEY]: { version: CACHE_VERSION, entries } });
+    await chromeCall(
+      () => chrome.storage.local.set({ [CACHE_KEY]: { version: CACHE_VERSION, entries } }),
+      null,
+    );
   }
 
   function loadActiveConversation(options) {
@@ -247,12 +274,10 @@
     return conversation.fetchActiveConversation(options);
   }
 
-  async function refreshFullEstimate({ force = false } = {}) {
+  async function refreshFullEstimate() {
     const conversationId = activeConversationId;
-    const now = Date.now();
-    if (!conversationId || isGenerating()) return;
+    if (stopped || !conversationId || isGenerating()) return;
     if (estimateRequest?.conversationId === conversationId) return estimateRequest.promise;
-    if (!force && (now - lastFullRefreshAt < REFRESH_INTERVAL_MS || now < nextRetryAt)) return;
 
     let request;
     request = Promise.resolve()
@@ -264,7 +289,7 @@
         }),
       )
       .then(async ({ currentNode, messages }) => {
-        if (activeConversationId !== conversationId) return;
+        if (stopped || activeConversationId !== conversationId) return;
         const ledger = conversation.createTokenLedger({
           conversationId,
           currentNode,
@@ -277,37 +302,33 @@
           messageCount: ledger.messageCount,
           updatedAt: ledger.updatedAt,
         };
-        lastFullRefreshAt = ledger.updatedAt;
-        nextRetryAt = 0;
         await storeLedger(ledger).catch(() => {});
       })
       .catch(() => {
-        if (activeConversationId !== conversationId) return;
-        nextRetryAt = Date.now() + RETRY_DELAY_MS;
+        if (stopped || activeConversationId !== conversationId) return;
         if (estimateState.kind === "full") estimateState = { ...estimateState, kind: "cached" };
       })
       .finally(() => {
         if (estimateRequest?.promise === request) estimateRequest = null;
-        if (activeConversationId === conversationId) scheduleRender();
+        if (!stopped && activeConversationId === conversationId) scheduleRender();
       });
     estimateRequest = { conversationId, promise: request };
     return request;
   }
 
   async function initializeConversationEstimate(conversationId) {
-    if (!conversationId) return;
+    if (stopped || !conversationId) return;
     await restoreCachedEstimate(conversationId).catch(() => {});
-    if (activeConversationId === conversationId) await refreshFullEstimate({ force: true });
+    if (!stopped && activeConversationId === conversationId) await refreshFullEstimate();
   }
 
   function syncConversationRoute() {
+    if (stopped) return;
     const nextConversationId = conversation.conversationIdFromPathname(currentPathname());
     if (nextConversationId === activeConversationId) return;
     activeConversationId = nextConversationId;
     estimateState = { kind: "partial", tokens: 0, messageCount: 0 };
     estimateRequest = null;
-    lastFullRefreshAt = 0;
-    nextRetryAt = 0;
     if (nextConversationId) void initializeConversationEstimate(nextConversationId);
   }
 
@@ -343,6 +364,7 @@
   }
 
   function render() {
+    if (stopped) return;
     refreshObservedRoot();
     applyTheme();
     syncConversationRoute();
@@ -353,14 +375,14 @@
       checkpointPrompt = "";
       checkpointResponse = "";
       elements.warning.hidden = true;
-      consumePendingCheckpoint();
+      void consumePendingCheckpoint();
     }
 
     const domMessages = conversationMessages();
     maybeCaptureCheckpoint(domMessages);
     const generating = isGenerating();
     if (generating && estimateState.kind === "full") estimateState = { ...estimateState, kind: "cached" };
-    if (wasGenerating && !generating) void refreshFullEstimate({ force: true });
+    if (wasGenerating && !generating) void refreshFullEstimate();
     wasGenerating = generating;
 
     const estimate = selectedEstimate(domMessages);
@@ -386,12 +408,14 @@
   }
 
   function scheduleRender() {
+    if (stopped) return;
     clearTimeout(updateTimer);
     updateTimer = setTimeout(render, 250);
   }
 
   async function loadContextWindow() {
-    const stored = await chrome.storage.sync.get(CONTEXT_WINDOW_STORAGE_KEY);
+    const stored = await chromeCall(() => chrome.storage.sync.get(CONTEXT_WINDOW_STORAGE_KEY), null);
+    if (!stored || stopped) return;
     try {
       contextWindowTokens = core.normalizeContextWindowTokens(
         stored[CONTEXT_WINDOW_STORAGE_KEY] ?? core.DEFAULT_CONTEXT_WINDOW_TOKENS,
@@ -422,24 +446,28 @@
   }
 
   async function carryLatestToNewChat() {
-    if (!checkpointResponse) return;
-    await chrome.storage.local.set({ pendingCheckpoint: checkpointResponse });
+    if (stopped || !checkpointResponse) return;
+    await chromeCall(() => chrome.storage.local.set({ pendingCheckpoint: checkpointResponse }), null);
+    if (!extensionRuntime.isActive()) return;
     navigate("/");
   }
 
   async function consumePendingCheckpoint() {
-    if (currentPathname() !== "/") return;
-    const { pendingCheckpoint } = await chrome.storage.local.get("pendingCheckpoint");
+    if (stopped || currentPathname() !== "/") return;
+    const stored = await chromeCall(() => chrome.storage.local.get("pendingCheckpoint"), null);
+    if (!stored || stopped) return;
+    const { pendingCheckpoint } = stored;
     if (!pendingCheckpoint) return;
     let attempts = 0;
     const tryInsert = async () => {
+      if (stopped) return;
       if (setComposerText(`Continue from this checkpoint:\n\n${pendingCheckpoint}`)) {
-        await chrome.storage.local.remove("pendingCheckpoint");
+        await chromeCall(() => chrome.storage.local.remove("pendingCheckpoint"), null);
         return;
       }
-      if (attempts++ < 30) setTimeout(tryInsert, 250);
+      if (attempts++ < 30) pendingInsertTimer = setTimeout(tryInsert, 250);
     };
-    tryInsert();
+    void tryInsert();
   }
 
   shell.querySelector(".collapse-button").addEventListener("click", () => {
@@ -464,7 +492,11 @@
       const form = new FormData(elements.settings);
       contextWindowTokens = core.normalizeContextWindowTokens(form.get("contextWindowTokens"));
       thresholds = core.thresholdsForContextWindow(contextWindowTokens);
-      await chrome.storage.sync.set({ [CONTEXT_WINDOW_STORAGE_KEY]: contextWindowTokens });
+      await chromeCall(
+        () => chrome.storage.sync.set({ [CONTEXT_WINDOW_STORAGE_KEY]: contextWindowTokens }),
+        null,
+      );
+      if (!extensionRuntime.isActive()) return;
       elements.settings.hidden = true;
       render();
     } catch (error) {
@@ -472,8 +504,8 @@
     }
   });
   elements.primary.addEventListener("click", () => {
-    if (checkpointResponse) carryLatestToNewChat();
-    else generateCheckpoint();
+    if (checkpointResponse) void carryLatestToNewChat();
+    else void generateCheckpoint();
   });
   shell.querySelector(".warning-dismiss").addEventListener("click", () => {
     elements.warning.hidden = true;
@@ -481,15 +513,15 @@
 
   themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "data-theme"] });
   colorScheme.addEventListener?.("change", applyTheme);
-  setInterval(() => {
+  heartbeatTimer = setInterval(() => {
+    if (stopped) return;
     if (currentPathname() !== lastPath || dom.findConversationRoot(document) !== observedRoot) scheduleRender();
-    if (activeConversationId && !isGenerating()) void refreshFullEstimate();
   }, 1_000);
 
   refreshObservedRoot();
   applyTheme();
   syncConversationRoute();
   wasGenerating = isGenerating();
-  loadContextWindow();
-  consumePendingCheckpoint();
+  void loadContextWindow();
+  void consumePendingCheckpoint();
 })();
