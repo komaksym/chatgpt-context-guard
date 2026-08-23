@@ -7,9 +7,11 @@ const {
   classifyUsage,
   contextWindowUsage,
   createCheckpointPrompt,
+  createExtensionRuntime,
   estimateTextTokens,
   estimateTranscriptTokens,
   formatTokenCount,
+  isExtensionContextInvalidatedError,
   normalizeContextWindowTokens,
   normalizeThresholds,
   thresholdsForContextWindow,
@@ -90,6 +92,41 @@ test("formats readable compact token counts", () => {
   assert.equal(formatTokenCount(1_200), "1.2K");
   assert.equal(formatTokenCount(184_000), "184K");
   assert.equal(formatTokenCount(1_050_000), "1.05M");
+});
+
+test("recognizes Chrome extension-context invalidation errors", () => {
+  assert.equal(isExtensionContextInvalidatedError(new Error("Extension context invalidated.")), true);
+  assert.equal(isExtensionContextInvalidatedError(new Error("network down")), false);
+});
+
+test("invalidated Chrome calls shut down once and return the fallback", async () => {
+  let shutdowns = 0;
+  let laterCalls = 0;
+  const runtime = createExtensionRuntime({ onInvalidate: () => { shutdowns += 1; } });
+
+  const result = await runtime.call(
+    async () => { throw new Error("Extension context invalidated."); },
+    null,
+  );
+  const later = await runtime.call(async () => {
+    laterCalls += 1;
+    return 123;
+  }, "stopped");
+
+  assert.equal(result, null);
+  assert.equal(later, "stopped");
+  assert.equal(runtime.isActive(), false);
+  assert.equal(shutdowns, 1);
+  assert.equal(laterCalls, 0);
+});
+
+test("non-invalidation Chrome failures still surface", async () => {
+  const runtime = createExtensionRuntime();
+  await assert.rejects(
+    () => runtime.call(async () => { throw new Error("storage broken"); }),
+    /storage broken/,
+  );
+  assert.equal(runtime.isActive(), true);
 });
 
 test("checkpoint prompt preserves operational state instead of asking for prose", () => {
