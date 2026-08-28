@@ -4,7 +4,7 @@ const { spawnSync } = require("node:child_process");
 
 const root = path.resolve(__dirname, "..");
 const files = [
-  "src/core.js",
+  "src/tokenizer.js",\n  "src/core.js",
   "src/dom.js",
   "src/conversation.js",
   "src/content.js",
@@ -29,6 +29,11 @@ for (const file of files) {
 
 const manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8"));
 if (manifest.manifest_version !== 3) throw new Error("manifest.json must use Manifest V3");
+const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+if (manifest.version !== packageJson.version) throw new Error("manifest and package versions must match");
+if (packageJson.devDependencies?.["gpt-tokenizer"] !== "3.4.0") {
+  throw new Error("gpt-tokenizer must stay pinned to 3.4.0");
+}
 if (manifest.permissions.some((permission) => permission !== "storage")) {
   throw new Error("Unexpected extension permission");
 }
