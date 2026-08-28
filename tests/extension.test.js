@@ -8,10 +8,12 @@ const root = path.resolve(__dirname, "..");
 test("manifest is a minimal MV3 ChatGPT-only content extension", () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8"));
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, "0.2.3");
+  assert.equal(manifest.version, "0.2.4");
   assert.deepEqual(manifest.permissions, ["storage"]);
   assert.deepEqual(manifest.host_permissions.sort(), ["https://chat.openai.com/*", "https://chatgpt.com/*"]);
   assert.deepEqual(manifest.content_scripts[0].js, [
+    "vendor/o200k_base.js",
+    "src/tokenizer.js",
     "src/core.js",
     "src/dom.js",
     "src/conversation.js",
@@ -90,8 +92,8 @@ test("widget shows Codex-style context-window usage while keeping estimate prove
   assert.match(source, /Complete active branch estimate/);
   assert.match(source, /Cached complete active branch estimate; refresh unavailable/);
   assert.match(source, /Partial — only currently loaded messages counted/);
-  assert.match(source, /Estimated textual active-branch history versus a configurable context window/);
-  assert.match(source, /Context not exposed by ChatGPT, exact model input/);
+  assert.match(source, /Estimated observable active-branch tokens versus a configurable context window/);
+  assert.match(source, /Hidden ChatGPT context, exact model input/);
   assert.match(source, /server-side truncation, and compaction remain unknown/);
   assert.match(source, /data-theme/);
   assert.match(styles, /usage-summary/);
@@ -108,4 +110,6 @@ test("repository contains deterministic browser fixture and builds the conversat
   assert.equal(typeof packageJson.scripts["test:browser"], "string");
   const build = fs.readFileSync(path.join(root, "scripts/build.js"), "utf8");
   assert.match(build, /src\/conversation\.js/);
+  assert.match(build, /gpt-tokenizer/);
+  assert.match(build, /o200k_base\.js/);
 });
