@@ -1,8 +1,13 @@
 (function initContextGuardCore(root, factory) {
-  const api = factory();
+  let tokenizer = root.ContextGuardTokenizer || null;
+  if (!tokenizer && typeof module === "object" && module.exports && typeof require === "function") {
+    tokenizer = require("./tokenizer.js");
+  }
+
+  const api = factory(tokenizer);
   if (typeof module === "object" && module.exports) module.exports = api;
   root.ContextGuardCore = api;
-})(typeof globalThis === "object" ? globalThis : this, function createCore() {
+})(typeof globalThis === "object" ? globalThis : this, function createCore(tokenizer) {
   "use strict";
 
   const DEFAULT_CONTEXT_WINDOW_TOKENS = 258_000;
@@ -54,14 +59,7 @@
   }
 
   function estimateTextTokens(text) {
-    if (!text) return 0;
-    const value = String(text);
-    const cjk = value.match(/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/gu) || [];
-    const remaining = value.replace(
-      /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/gu,
-      "",
-    );
-    return cjk.length + Math.ceil(remaining.length / 4);
+    return tokenizer.countTextTokens(text);
   }
 
   function estimateTranscriptTokens(messages) {
