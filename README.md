@@ -24,7 +24,7 @@ Warnings are derived from the configured window instead of unrelated absolute to
 
 For saved conversation routes, the extension first tries to load ChatGPT's complete active conversation branch from ChatGPT's own same-origin conversation data. This avoids undercounting when the page virtualizes old messages and removes them from the DOM.
 
-The meter counts every textual message exposed on that active branch, including user, assistant, system/developer, and tool roles. It does not count inactive regenerated sibling branches.
+The meter counts the complete observable active branch, including user/assistant text, exposed system/developer messages, tool calls and recipients, structured tool arguments/results, code, and other structured textual content. It does not count inactive regenerated sibling branches.
 
 The meter labels the source of every estimate:
 
@@ -34,7 +34,7 @@ The meter labels the source of every estimate:
 
 Only token counts, roles, and message IDs are cached locally. Conversation text and access tokens are never persisted. The ChatGPT conversation endpoint is undocumented and may change, so the DOM fallback is intentional.
 
-The numerator is still an estimate, not server-authoritative token telemetry. Tokenization uses a lightweight local heuristic rather than the selected model's exact tokenizer, and context that ChatGPT does not expose to the page is unknowable. Server-side truncation and compaction are also unknown. The configured denominator is not automatically model-detected.
+The numerator is still an estimate, not server-authoritative token telemetry. Observable content is tokenized locally with a pinned OpenAI-compatible `o200k_base` BPE tokenizer instead of a character-count heuristic. ChatGPT's exact internal message serialization and context that it does not expose to the page remain unknowable; server-side truncation and compaction are also intentionally not inferred. The configured denominator is not automatically model-detected.
 
 ## Install from source
 
