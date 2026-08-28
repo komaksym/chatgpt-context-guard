@@ -5,7 +5,7 @@ const root = path.resolve(__dirname, "..");
 const dist = path.join(root, "dist");
 const files = [
   "manifest.json",
-  "src/core.js",
+  "src/tokenizer.js",\n  "src/core.js",
   "src/dom.js",
   "src/conversation.js",
   "src/content.js",
@@ -20,6 +20,14 @@ const files = [
 ];
 
 fs.rmSync(dist, { recursive: true, force: true });
+const tokenizerSource = path.join(root, "node_modules", "gpt-tokenizer", "dist", "o200k_base.js");
+if (!fs.existsSync(tokenizerSource)) {
+  throw new Error("Missing gpt-tokenizer. Run npm ci before building.");
+}
+const tokenizerDestination = path.join(dist, "vendor", "o200k_base.js");
+fs.mkdirSync(path.dirname(tokenizerDestination), { recursive: true });
+fs.copyFileSync(tokenizerSource, tokenizerDestination);
+
 for (const file of files) {
   const source = path.join(root, file);
   const destination = path.join(dist, file);
