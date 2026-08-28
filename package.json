@@ -1,6 +1,6 @@
 {
   "name": "chatgpt-context-guard",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "private": true,
   "type": "commonjs",
   "scripts": {
@@ -11,6 +11,7 @@
     "verify": "npm test && npm run lint && npm run build && npm run test:browser"
   },
   "devDependencies": {
+    "gpt-tokenizer": "3.4.0",
     "playwright": "1.61.1"
   }
 }
