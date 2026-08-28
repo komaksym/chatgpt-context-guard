@@ -4,7 +4,8 @@ const { spawnSync } = require("node:child_process");
 
 const root = path.resolve(__dirname, "..");
 const files = [
-  "src/tokenizer.js",\n  "src/core.js",
+  "src/tokenizer.js",
+  "src/core.js",
   "src/dom.js",
   "src/conversation.js",
   "src/content.js",
