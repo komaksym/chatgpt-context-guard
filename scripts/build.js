@@ -5,7 +5,8 @@ const root = path.resolve(__dirname, "..");
 const dist = path.join(root, "dist");
 const files = [
   "manifest.json",
-  "src/tokenizer.js",\n  "src/core.js",
+  "src/tokenizer.js",
+  "src/core.js",
   "src/dom.js",
   "src/conversation.js",
   "src/content.js",
