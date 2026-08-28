@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ChatGPT Context Guard",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Shows estimated ChatGPT context-window usage and helps create checkpoints before context becomes risky.",
   "icons": {
     "16": "assets/icon-16.png",
@@ -23,6 +23,8 @@
         "https://chat.openai.com/*"
       ],
       "js": [
+        "vendor/o200k_base.js",
+        "src/tokenizer.js",
         "src/core.js",
         "src/dom.js",
         "src/conversation.js",
