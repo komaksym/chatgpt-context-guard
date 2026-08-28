@@ -8,7 +8,7 @@
   if (!core || !dom || !conversation || document.getElementById("chatgpt-context-guard-host")) return;
 
   const CACHE_KEY = "conversationEstimateCache";
-  const CACHE_VERSION = 2;
+  const CACHE_VERSION = 3;
   const CONTEXT_WINDOW_STORAGE_KEY = "contextWindowTokens";
   const CACHE_LIMIT = 20;
 
