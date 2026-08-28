@@ -47,7 +47,7 @@
       <div class="count"><span class="token-count">0+</span><span class="context-separator"> / </span><span class="context-limit">258K</span><span class="token-suffix"> tokens loaded</span></div>
       <div class="source" role="status">Partial — only currently loaded messages counted</div>
       <div class="status" role="status"><span class="status-dot"></span><span class="status-text"></span></div>
-      <p class="disclaimer">Estimated textual active-branch history versus a configurable context window. Context not exposed by ChatGPT, exact model input, server-side truncation, and compaction remain unknown.</p>
+      <p class="disclaimer">Estimated observable active-branch tokens versus a configurable context window. Hidden ChatGPT context, exact model input, server-side truncation, and compaction remain unknown.</p>
       <button class="primary" type="button">Generate checkpoint</button>
       <form class="settings" hidden>
         <label>Context window <input name="contextWindowTokens" type="number" min="1000" step="1000"></label>
