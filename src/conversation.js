@@ -99,10 +99,11 @@
     return stableStringify(content);
   }
 
-  function relevantMetadata(metadata) {
+  function relevantMetadata(metadata, { includeCallPayload = true } = {}) {
     if (!metadata || typeof metadata !== "object") return null;
     const selected = {};
     for (const key of MODEL_RELEVANT_METADATA_KEYS) {
+      if (!includeCallPayload && ["tool_calls", "function_call", "function_calls"].includes(key)) continue;
       if (metadata[key] !== undefined && metadata[key] !== null) selected[key] = metadata[key];
     }
     return Object.keys(selected).length ? selected : null;
@@ -115,7 +116,10 @@
     const recipient = message.recipient || "";
     const channel = message.channel || message.metadata?.channel || "";
     const body = contentTokenText(message.content);
-    const metadata = relevantMetadata(message.metadata);
+    // Tool/function payloads sometimes appear both in content and metadata.
+    // When content already carries the payload, retain only small identifiers
+    // from metadata so arguments/results are not double-counted.
+    const metadata = relevantMetadata(message.metadata, { includeCallPayload: !body });
 
     const semantic = [];
     if (name) semantic.push(`name:${name}`);
