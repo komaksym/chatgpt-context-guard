@@ -6,6 +6,7 @@ const { chromium } = require("playwright");
 
 const root = path.resolve(__dirname, "..");
 const fixture = fs.readFileSync(path.join(__dirname, "fixture.html"), "utf8");
+const { estimateTextTokens, formatTokenCount, contextWindowUsage } = require("../src/core.js");
 
 function browserExecutable() {
   const candidates = [
@@ -99,6 +100,8 @@ async function injectContentScript(
       contextLimit: contextWindowTokens,
     },
   );
+  await page.addScriptTag({ path: path.join(root, "node_modules/gpt-tokenizer/dist/o200k_base.js") });
+  await page.addScriptTag({ path: path.join(root, "src/tokenizer.js") });
   await page.addScriptTag({ path: path.join(root, "src/core.js") });
   await page.addScriptTag({ path: path.join(root, "src/dom.js") });
   await page.addScriptTag({ path: path.join(root, "src/conversation.js") });
@@ -129,6 +132,10 @@ async function expandGuard(page) {
 test("browser fixture uses the complete active branch instead of the mounted DOM window", async (t) => {
   const browser = await launchBrowser(t);
   const page = await browser.newPage();
+  const expectedTokens =
+    estimateTextTokens("x".repeat(4_000)) +
+    estimateTextTokens("y".repeat(8_000)) +
+    estimateTextTokens("z".repeat(4_000));
   await injectContentScript(page, {
     fullConversation: {
       currentNode: "tool-api",
@@ -146,23 +153,25 @@ test("browser fixture uses the complete active branch instead of the mounted DOM
   );
   assert.equal(await host.locator(".collapsed").isVisible(), true);
   assert.equal(await host.locator(".panel").isHidden(), true);
-  assert.equal(await host.locator(".collapsed-count").innerText(), "4K");
+  assert.equal(await host.locator(".collapsed-count").innerText(), formatTokenCount(expectedTokens));
 
   await expandGuard(page);
-  assert.equal(await host.locator(".token-count").innerText(), "4K");
+  assert.equal(await host.locator(".token-count").innerText(), formatTokenCount(expectedTokens));
   assert.equal((await host.locator(".token-suffix").innerText()).trim(), "tokens used");
   assert.equal(await host.locator(".source").innerText(), "Complete active branch estimate");
   assert.equal(await host.locator(".context-limit").innerText(), "258K");
 
   const cache = await page.evaluate(() => globalThis.__contextGuardStorage.local.conversationEstimateCache);
   assert.equal(cache.version, 2);
-  assert.equal(cache.entries.fixture.totalTokens, 4_000);
+  assert.equal(cache.entries.fixture.totalTokens, expectedTokens);
   assert.doesNotMatch(JSON.stringify(cache), /xxxx|yyyy|zzzz/);
 });
 
 test("browser fixture shows Codex-style used and remaining context percentages", async (t) => {
   const browser = await launchBrowser(t);
   const page = await browser.newPage();
+  const expectedTokens = estimateTextTokens("x".repeat(192_000));
+  const expectedUsage = contextWindowUsage(expectedTokens, 258_000);
   await injectContentScript(page, {
     contextWindowTokens: 258_000,
     fullConversation: {
@@ -176,9 +185,9 @@ test("browser fixture shows Codex-style used and remaining context percentages",
     () => document.querySelector("#chatgpt-context-guard-host").shadowRoot.querySelector(".guard").dataset.estimateSource === "full",
   );
   await expandGuard(page);
-  assert.equal(await host.locator(".usage-percent").innerText(), "18% used");
-  assert.equal(await host.locator(".usage-left").innerText(), "(82% left)");
-  assert.equal(await host.locator(".token-count").innerText(), "48K");
+  assert.equal(await host.locator(".usage-percent").innerText(), `${expectedUsage.usedPercent}% used`);
+  assert.equal(await host.locator(".usage-left").innerText(), `(${expectedUsage.leftPercent}% left)`);
+  assert.equal(await host.locator(".token-count").innerText(), formatTokenCount(expectedTokens));
   assert.equal(await host.locator(".context-limit").innerText(), "258K");
   assert.equal((await host.locator(".token-suffix").innerText()).trim(), "tokens used");
 });
