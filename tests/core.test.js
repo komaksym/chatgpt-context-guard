@@ -1,3 +1,4 @@
+const { countTokens } = require("gpt-tokenizer/encoding/o200k_base");
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
@@ -17,24 +18,28 @@ const {
   thresholdsForContextWindow,
 } = require("../src/core.js");
 
-test("estimates empty and ASCII text without claiming exact tokenization", () => {
+test("uses the pinned o200k tokenizer instead of a character heuristic", () => {
   assert.equal(estimateTextTokens(""), 0);
-  assert.equal(estimateTextTokens("hello world"), 3);
-  assert.equal(estimateTextTokens("a".repeat(400)), 100);
+  for (const value of ["hello world", "a".repeat(400), "{\"query\":\"weather in 東京\"}"]) {
+    assert.equal(estimateTextTokens(value), countTokens(value));
+  }
+  assert.notEqual(estimateTextTokens("hello world"), Math.ceil("hello world".length / 4));
 });
 
-test("counts CJK characters more conservatively than ASCII", () => {
-  assert.equal(estimateTextTokens("你好世界"), 4);
-  assert.equal(estimateTextTokens("hello 世界"), 4);
+test("tokenizes non-English text with the same o200k vocabulary", () => {
+  assert.equal(estimateTextTokens("你好世界"), countTokens("你好世界"));
+  assert.equal(estimateTextTokens("hello 世界"), countTokens("hello 世界"));
 });
 
-test("aggregates only visible user and assistant transcript text", () => {
+test("aggregates only visible user and assistant transcript text for the DOM fallback", () => {
+  const user = "a".repeat(40);
+  const assistant = "b".repeat(80);
   const messages = [
-    { role: "user", text: "a".repeat(40) },
-    { role: "assistant", text: "b".repeat(80) },
+    { role: "user", text: user },
+    { role: "assistant", text: assistant },
     { role: "tool", text: "c".repeat(400) },
   ];
-  assert.equal(estimateTranscriptTokens(messages), 30);
+  assert.equal(estimateTranscriptTokens(messages), countTokens(user) + countTokens(assistant));
 });
 
 test("reports Codex-style used and remaining context against the 258K default", () => {
