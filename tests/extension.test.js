@@ -31,7 +31,7 @@ test("content script uses full conversation estimates without weakening checkpoi
   assert.match(source, /ContextGuardConversation/);
   assert.match(source, /fetchActiveConversation/);
   assert.match(source, /conversationEstimateCache/);
-  assert.match(source, /const CACHE_VERSION = 2/);
+  assert.match(source, /const CACHE_VERSION = 3/);
   assert.match(source, /conversationMessages\(\)/);
   assert.match(source, /findConversationRoot/);
   assert.match(source, /MutationObserver/);
