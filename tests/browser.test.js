@@ -52,7 +52,7 @@ async function injectContentScript(
       const local = pending ? { pendingCheckpoint: pending } : {};
       if (ledger) {
         local.conversationEstimateCache = {
-          version: 2,
+          version: 3,
           entries: { [ledger.conversationId]: ledger },
         };
       }
@@ -162,7 +162,7 @@ test("browser fixture uses the complete active branch instead of the mounted DOM
   assert.equal(await host.locator(".context-limit").innerText(), "258K");
 
   const cache = await page.evaluate(() => globalThis.__contextGuardStorage.local.conversationEstimateCache);
-  assert.equal(cache.version, 2);
+  assert.equal(cache.version, 3);
   assert.equal(cache.entries.fixture.totalTokens, expectedTokens);
   assert.doesNotMatch(JSON.stringify(cache), /xxxx|yyyy|zzzz/);
 });
