@@ -5,9 +5,11 @@ const { estimateTextTokens } = require("../src/core.js");
 const {
   activeBranchMessages,
   contentText,
+  contentTokenText,
   conversationIdFromPathname,
   createTokenLedger,
   fetchActiveConversation,
+  messageTokenText,
 } = require("../src/conversation.js");
 
 function response(body, { ok = true, status = 200 } = {}) {
@@ -32,11 +34,17 @@ test("extracts conversation IDs from standard and nested routes", () => {
   assert.equal(conversationIdFromPathname("/"), "");
 });
 
-test("walks only the active current-node parent chain and keeps textual non-chat roles", () => {
-  assert.deepEqual(activeBranchMessages(payload()), [
+test("walks only the active current-node parent chain and builds tokenizable messages", () => {
+  const messages = activeBranchMessages(payload());
+  assert.deepEqual(messages.map(({ id, role, text }) => ({ id, role, text })), [
     { id: "root", role: "system", text: "hidden" },
     { id: "user", role: "user", text: "question" },
     { id: "assistant-new", role: "assistant", text: "selected answer" },
+  ]);
+  assert.deepEqual(messages.map((message) => message.tokenText), [
+    "role:system\nhidden",
+    "role:user\nquestion",
+    "role:assistant\nselected answer",
   ]);
 });
 
@@ -47,19 +55,54 @@ test("rejects missing nodes and cycles instead of counting an ambiguous mapping"
   assert.throws(() => activeBranchMessages(cyclic), /cycle/i);
 });
 
-test("extracts text parts and ignores non-text multimodal objects", () => {
-  assert.equal(
-    contentText({
-      parts: [
-        "hello",
-        { content_type: "image_asset_pointer", asset_pointer: "file://secret" },
-        { content_type: "text", text: "caption" },
-      ],
-    }),
-    "hello\ncaption",
-  );
+test("keeps plain text readable while preserving structured multimodal content for tokenization", () => {
+  const content = {
+    content_type: "multimodal_text",
+    parts: [
+      "hello",
+      { content_type: "image_asset_pointer", asset_pointer: "file://secret" },
+      { content_type: "text", text: "caption" },
+    ],
+  };
+  assert.equal(contentText(content), "hello\ncaption");
+  const tokenText = contentTokenText(content);
+  assert.match(tokenText, /hello/);
+  assert.match(tokenText, /caption/);
+  assert.match(tokenText, /image_asset_pointer/);
+  assert.match(tokenText, /\[asset pointer\]/);
+  assert.doesNotMatch(tokenText, /file:\/\/secret/);
   assert.equal(contentText({ text: "direct text" }), "direct text");
   assert.equal(contentText(null), "");
+});
+
+test("preserves tool recipients, arguments, results, and relevant tool metadata", () => {
+  const call = messageTokenText({
+    author: { role: "assistant" },
+    recipient: "web.run",
+    content: { content_type: "code", language: "json", text: "{\"query\":\"cats\"}" },
+    metadata: { tool_call_id: "call-1", request_id: "ui-only" },
+  });
+  assert.match(call, /^role:assistant/m);
+  assert.match(call, /recipient:web\.run/);
+  assert.match(call, /language:json/);
+  assert.match(call, /"query":"cats"/);
+  assert.match(call, /tool_call_id/);
+  assert.doesNotMatch(call, /ui-only/);
+
+  const result = messageTokenText({
+    author: { role: "tool", name: "web.run" },
+    recipient: "all",
+    content: {
+      content_type: "execution_output",
+      text: "two results",
+      rows: [{ title: "A" }, { title: "B" }],
+    },
+  });
+  assert.match(result, /^role:tool/m);
+  assert.match(result, /name:web\.run/);
+  assert.match(result, /execution_output/);
+  assert.match(result, /two results/);
+  assert.match(result, /"title":"A"/);
 });
 
 test("loads the session token in memory and fetches the active conversation", async () => {
@@ -87,7 +130,7 @@ test("loads the session token in memory and fetches the active conversation", as
 
 test("surfaces authentication and conversation HTTP failures", async () => {
   await assert.rejects(
-    fetchActiveConversation({
+    () => fetchActiveConversation({
       conversationId: "id",
       origin: "https://chatgpt.com",
       fetchImpl: async () => response({}, { ok: false, status: 401 }),
@@ -97,7 +140,7 @@ test("surfaces authentication and conversation HTTP failures", async () => {
 
   let call = 0;
   await assert.rejects(
-    fetchActiveConversation({
+    () => fetchActiveConversation({
       conversationId: "id",
       origin: "https://chatgpt.com",
       fetchImpl: async () => (++call === 1 ? response({ accessToken: "token" }) : response({}, { ok: false, status: 503 })),
@@ -106,13 +149,12 @@ test("surfaces authentication and conversation HTTP failures", async () => {
   );
 });
 
-test("creates a token-only ledger for every textual role without persisting text", () => {
+test("creates a token-only ledger from normalized message structures without persisting content", () => {
   const messages = [
-    { id: "system", role: "system", text: "abcd" },
-    { id: "developer", role: "developer", text: "abcdefgh" },
-    { id: "tool", role: "tool", text: "abcdefghijkl" },
-    { id: "user", role: "user", text: "abcd" },
-    { id: "assistant", role: "assistant", text: "abcd" },
+    { id: "system", role: "system", text: "secret-system", tokenText: "role:system\nsecret-system" },
+    { id: "tool-call", role: "assistant", text: "", tokenText: "role:assistant\nrecipient:web.run\n{\"query\":\"private-query\"}" },
+    { id: "tool-result", role: "tool", text: "", tokenText: "role:tool\nname:web.run\n{\"result\":\"private-result\"}" },
+    { id: "assistant", role: "assistant", text: "final-answer", tokenText: "role:assistant\nfinal-answer" },
   ];
   const ledger = createTokenLedger({
     conversationId: "conversation-id",
@@ -122,20 +164,15 @@ test("creates a token-only ledger for every textual role without persisting text
     updatedAt: 1234,
   });
 
-  assert.deepEqual(ledger, {
-    conversationId: "conversation-id",
-    currentNode: "assistant",
-    messageTokens: {
-      system: { role: "system", tokens: 1 },
-      developer: { role: "developer", tokens: 2 },
-      tool: { role: "tool", tokens: 3 },
-      user: { role: "user", tokens: 1 },
-      assistant: { role: "assistant", tokens: 1 },
-    },
-    totalTokens: 8,
-    messageCount: 5,
-    updatedAt: 1234,
-  });
+  assert.equal(
+    ledger.totalTokens,
+    messages.reduce((total, message) => total + estimateTextTokens(message.tokenText), 0),
+  );
+  assert.equal(ledger.messageCount, 4);
+  assert.deepEqual(Object.keys(ledger.messageTokens), ["system", "tool-call", "tool-result", "assistant"]);
+  assert.equal(ledger.messageTokens["tool-call"].role, "assistant");
+  assert.equal(ledger.messageTokens["tool-result"].role, "tool");
+
   const serialized = JSON.stringify(ledger);
-  assert.doesNotMatch(serialized, /abcd|ephemeral-token/);
+  assert.doesNotMatch(serialized, /secret-system|private-query|private-result|final-answer/);
 });
